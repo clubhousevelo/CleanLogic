@@ -118,6 +118,7 @@ export function createSerialPowerController() {
     lastPacketHex: null,
     lastFrameAt: null,
     lastMeasurement: null,
+    portInfo: null,
     frameCount: 0,
     parsedFrameCount: 0,
     byteCount: 0,
@@ -149,6 +150,7 @@ export async function connectSerialPower(controller, {
   await disconnectSerialPower(controller);
   resetSerialStats(controller);
   const selectedPort = port ?? await navigator.serial.requestPort();
+  controller.portInfo = getSerialPortLabel(selectedPort, 0);
   const portLabel = portName ? ` (${portName}, ${baudRate} baud)` : ` (${baudRate} baud)`;
 
   setSerialStatus(controller, `Opening Powerbahn serial port${portLabel}`);
@@ -386,6 +388,7 @@ function resetSerialStats(controller) {
     lastPacketHex: null,
     lastFrameAt: null,
     lastMeasurement: null,
+    portInfo: null,
     frameCount: 0,
     parsedFrameCount: 0,
     byteCount: 0,

@@ -892,6 +892,7 @@ function renderSerialDebug() {
     `parsed ${serialPower.parsedFrameCount}`,
     `writes ${serialPower.writeCount}`,
     `bytes ${serialPower.byteCount}`,
+    serialPower.portInfo ? `port ${serialPower.portInfo}` : "port unknown",
     serialPower.signals ?? "signals not set",
     serialPower.startupStep ? `startup ${serialPower.startupStep}` : "startup pending",
     `last ${lastFrameAt}`,
