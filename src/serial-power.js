@@ -1,0 +1,212 @@
+const POWERBAHN_BAUD_RATE = 9600;
+const FRAME_START = 0xf1;
+const FRAME_END = 0xf2;
+const DASHBOARD_POLL_INTERVAL_MS = 300;
+
+const COMMANDS = {
+  speed: 0xa5,
+  cadence: 0xa8,
+  power: 0xb4,
+  heartRate: 0xd0,
+};
+
+const POWERBAHN_DASHBOARD_POLL = new Uint8Array([
+  FRAME_START,
+  COMMANDS.speed,
+  COMMANDS.cadence,
+  0xa9,
+  COMMANDS.power,
+  COMMANDS.heartRate,
+  0xd2,
+  0x12,
+  FRAME_END,
+]);
+
+export function createSerialPowerController() {
+  const supported = typeof navigator !== "undefined" && Boolean(navigator.serial);
+  return {
+    supported,
+    port: null,
+    reader: null,
+    writer: null,
+    connected: false,
+    status: supported ? "Disconnected" : "Web Serial unavailable",
+    lastError: null,
+    lastPacketHex: null,
+    pollTimer: null,
+    readLoop: null,
+    onMeasurement: null,
+    onStatus: null,
+  };
+}
+
+export async function connectSerialPower(controller, { port = null, portName = "" } = {}) {
+  if (!controller.supported) {
+    throw new Error("Web Serial is not available. Use Chrome or Edge over HTTPS or localhost.");
+  }
+
+  disconnectSerialPower(controller);
+  const selectedPort = port ?? await navigator.serial.requestPort();
+  const portLabel = portName ? ` (${portName})` : "";
+
+  setSerialStatus(controller, `Opening Powerbahn serial port${portLabel}`);
+  await selectedPort.open({
+    baudRate: POWERBAHN_BAUD_RATE,
+    dataBits: 8,
+    stopBits: 1,
+    parity: "none",
+    flowControl: "none",
+    bufferSize: 1024,
+  });
+
+  controller.port = selectedPort;
+  controller.writer = selectedPort.writable.getWriter();
+  controller.reader = selectedPort.readable.getReader();
+  controller.connected = true;
+  controller.lastError = null;
+
+  controller.readLoop = readSerialFrames(controller);
+  controller.pollTimer = window.setInterval(() => {
+    writeFrame(controller, POWERBAHN_DASHBOARD_POLL).catch((error) => {
+      controller.lastError = error.message;
+      setSerialStatus(controller, `Serial write failed: ${error.message}`);
+    });
+  }, DASHBOARD_POLL_INTERVAL_MS);
+
+  await writeFrame(controller, POWERBAHN_DASHBOARD_POLL);
+  setSerialStatus(controller, `Connected to Powerbahn serial power${portLabel}`);
+}
+
+export async function getGrantedSerialPorts() {
+  if (typeof navigator === "undefined" || !navigator.serial) return [];
+  return navigator.serial.getPorts();
+}
+
+export function getSerialPortLabel(port, index) {
+  const info = port?.getInfo?.() ?? {};
+  const parts = [];
+  if (info.usbVendorId != null) parts.push(`VID ${toHexId(info.usbVendorId)}`);
+  if (info.usbProductId != null) parts.push(`PID ${toHexId(info.usbProductId)}`);
+  return parts.length ? parts.join(" / ") : `Granted port ${index + 1}`;
+}
+
+export function disconnectSerialPower(controller) {
+  if (controller.pollTimer) window.clearInterval(controller.pollTimer);
+  controller.pollTimer = null;
+
+  const reader = controller.reader;
+  const writer = controller.writer;
+  controller.reader = null;
+  controller.writer = null;
+
+  try {
+    reader?.cancel?.();
+  } catch {
+    // The browser may already have closed the stream.
+  }
+  try {
+    writer?.releaseLock?.();
+  } catch {
+    // Best-effort cleanup for partially opened ports.
+  }
+
+  if (controller.port) {
+    controller.port.close?.().catch(() => undefined);
+  }
+
+  controller.port = null;
+  controller.connected = false;
+  setSerialStatus(controller, controller.supported ? "Disconnected" : "Web Serial unavailable");
+}
+
+async function readSerialFrames(controller) {
+  const frame = [];
+  let inFrame = false;
+
+  try {
+    while (controller.reader) {
+      const { value, done } = await controller.reader.read();
+      if (done) break;
+      if (!value) continue;
+
+      for (const byte of value) {
+        if (byte === FRAME_START) {
+          frame.length = 0;
+          inFrame = true;
+          continue;
+        }
+
+        if (!inFrame) continue;
+
+        if (byte === FRAME_END) {
+          handleFrame(controller, frame.slice());
+          frame.length = 0;
+          inFrame = false;
+          continue;
+        }
+
+        frame.push(byte);
+      }
+    }
+  } catch (error) {
+    if (controller.connected) {
+      controller.lastError = error.message;
+      setSerialStatus(controller, `Serial read failed: ${error.message}`);
+    }
+  } finally {
+    controller.reader?.releaseLock?.();
+  }
+}
+
+async function writeFrame(controller, frame) {
+  if (!controller.writer) throw new Error("Serial port is not writable.");
+  await controller.writer.write(frame);
+}
+
+function handleFrame(controller, payload) {
+  controller.lastPacketHex = toHex(payload);
+  const measurement = parsePowerbahnDashboardPayload(payload);
+  if (!measurement) return;
+  controller.onMeasurement?.(measurement);
+}
+
+function parsePowerbahnDashboardPayload(payload) {
+  const values = new Map();
+  let index = payload[0] === 0x01 ? 1 : 0;
+
+  while (index < payload.length) {
+    const command = payload[index];
+    const byteCount = payload[index + 1];
+    if (byteCount == null || byteCount < 1 || index + 2 + byteCount > payload.length) break;
+
+    let value = 0;
+    for (let i = 0; i < byteCount; i += 1) {
+      value = (value << 8) | payload[index + 2 + i];
+    }
+    values.set(command, value);
+    index += 2 + byteCount;
+  }
+
+  if (!values.has(COMMANDS.power) && !values.has(COMMANDS.cadence)) return null;
+
+  return {
+    power: values.get(COMMANDS.power) ?? null,
+    cadence: values.get(COMMANDS.cadence) ?? null,
+    speedRaw: values.get(COMMANDS.speed) ?? null,
+    heartRate: values.get(COMMANDS.heartRate) ?? null,
+    rawHex: toHex(payload),
+  };
+}
+
+function toHex(bytes) {
+  return bytes.map((byte) => byte.toString(16).padStart(2, "0").toUpperCase()).join(" ");
+}
+
+function toHexId(value) {
+  return `0x${value.toString(16).padStart(4, "0").toUpperCase()}`;
+}
+
+function setSerialStatus(controller, status) {
+  controller.status = status;
+  controller.onStatus?.(controller);
+}

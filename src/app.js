@@ -8,6 +8,13 @@ import {
   parseBluetoothHeartRateMeasurement,
 } from "./sensors.js";
 import {
+  connectSerialPower,
+  createSerialPowerController,
+  disconnectSerialPower,
+  getGrantedSerialPorts,
+  getSerialPortLabel,
+} from "./serial-power.js";
+import {
   clampPower,
   connectResistanceUnit,
   createResistanceController,
@@ -25,6 +32,7 @@ const DATA_PATHS = {
 const RESISTANCE_POWER_MIN = 0;
 const RESISTANCE_POWER_MAX = 1200;
 const RESISTANCE_POWER_STEP = 5;
+const SERIAL_PORT_STORAGE_KEY = "purelyfit.serialPort";
 
 const BLUETOOTH_SENSOR_PROFILES = {
   [SENSOR_TYPES.power]: {
@@ -59,8 +67,11 @@ const state = {
     [SENSOR_TYPES.power]: null,
     [SENSOR_TYPES.heartRate]: null,
   },
+  serialPower: createSerialPowerController(),
+  grantedSerialPorts: [],
+  serialPortName: localStorage.getItem(SERIAL_PORT_STORAGE_KEY) || "COM7",
   sensorConnect: {
-    message: "Ready to search Bluetooth sensors",
+    message: "Ready to connect sensors",
     busyType: null,
     error: false,
   },
@@ -111,6 +122,9 @@ function bindElements() {
     "useSerialHeartButton",
     "useBluetoothHeartButton",
     "useAntHeartButton",
+    "serialPortInput",
+    "serialPortSelect",
+    "refreshSerialPortsButton",
     "sensorConnectStatus",
     "resistanceStatus",
     "resistanceTargetInput",
@@ -128,7 +142,9 @@ function bindElements() {
 async function boot() {
   bindElements();
   wireEvents();
+  initializeSerialPortControls();
   await loadReplayData();
+  await refreshGrantedSerialPorts();
   renderCustomers();
   recordSession("Baseline Replay");
   renderAll(true);
@@ -153,12 +169,14 @@ function wireEvents() {
     });
     renderCustomers();
   });
-  elements.useSerialPowerButton.addEventListener("click", () => selectSensorSource({
-    id: "legacy-bike-serial",
-    type: SENSOR_TYPES.power,
-    transport: SENSOR_TRANSPORTS.serial,
-    name: "Serial Bike Power",
-  }));
+  elements.useSerialPowerButton.addEventListener("click", connectPowerbahnSerialSensor);
+  elements.serialPortInput.addEventListener("input", (event) => {
+    state.serialPortName = event.target.value.trim();
+    localStorage.setItem(SERIAL_PORT_STORAGE_KEY, state.serialPortName);
+    renderSensorConnectStatus();
+  });
+  elements.serialPortSelect.addEventListener("change", renderSensorConnectStatus);
+  elements.refreshSerialPortsButton.addEventListener("click", refreshGrantedSerialPorts);
   elements.useBluetoothPowerButton.addEventListener("click", () => connectBluetoothSensor(SENSOR_TYPES.power));
   elements.useAntPowerButton.addEventListener("click", () => selectSensorSource({
     type: SENSOR_TYPES.power,
@@ -200,6 +218,16 @@ function wireEvents() {
   document.querySelectorAll(".nav-item").forEach((button) => {
     button.addEventListener("click", () => setPanel(button.dataset.panel));
   });
+  state.serialPower.onStatus = () => {
+    renderSensorConnectStatus();
+    renderSensors();
+  };
+  state.serialPower.onMeasurement = updateSerialPowerSensorValue;
+}
+
+function initializeSerialPortControls() {
+  elements.serialPortInput.value = state.serialPortName;
+  elements.refreshSerialPortsButton.disabled = !state.serialPower.supported;
 }
 
 async function loadReplayData() {
@@ -541,6 +569,9 @@ function getRollingPowerAverage() {
 
 function selectSensorSource({ id, type, transport, name }) {
   if (transport !== SENSOR_TRANSPORTS.bluetooth) disconnectBluetoothSensor(type);
+  if (type === SENSOR_TYPES.power && transport !== SENSOR_TRANSPORTS.serial) {
+    disconnectSerialPower(state.serialPower);
+  }
   const sensorId = id ?? `${type}-${transport.toLowerCase().replaceAll(/[^a-z0-9]+/g, "-")}`;
   const sensor = createSensor({ id: sensorId, type, transport, name });
   state.activeSensors[type] = sensor;
@@ -549,6 +580,103 @@ function selectSensorSource({ id, type, transport, name }) {
     state.activePowerSourceId = null;
     updatePowerDisplayHistory();
   }
+  renderAll(true);
+}
+
+async function connectPowerbahnSerialSensor() {
+  if (!state.serialPower.supported) {
+    setSensorConnectStatus(state.serialPower.status, { error: true });
+    return;
+  }
+
+  disconnectBluetoothSensor(SENSOR_TYPES.power);
+  const sensor = createSensor({
+    id: "powerbahn-usb-serial",
+    type: SENSOR_TYPES.power,
+    transport: SENSOR_TRANSPORTS.serial,
+    name: "Powerbahn USB Serial",
+  });
+  sensor.live = true;
+  sensor.connected = false;
+  sensor.value = null;
+  state.activeSensors[SENSOR_TYPES.power] = sensor;
+  state.activePowerSourceId = null;
+  renderAll(true);
+
+  const requestedPortName = elements.serialPortInput.value.trim();
+  const grantedPort = getSelectedGrantedSerialPort();
+  const portHint = requestedPortName ? ` ${requestedPortName}` : "";
+  setSensorConnectStatus(`Connecting to Powerbahn USB serial${portHint}...`, { busyType: SENSOR_TYPES.power });
+
+  try {
+    await connectSerialPower(state.serialPower, {
+      port: grantedPort,
+      portName: requestedPortName,
+    });
+    sensor.connected = true;
+    sensor.lastSeen = new Date();
+    setSensorConnectStatus(state.serialPower.status);
+  } catch (error) {
+    sensor.connected = false;
+    state.serialPower.lastError = error.message;
+    setSensorConnectStatus(getSerialConnectError(error), { error: true });
+  } finally {
+    renderAll(true);
+  }
+}
+
+async function refreshGrantedSerialPorts() {
+  if (!state.serialPower.supported) {
+    renderGrantedSerialPorts();
+    return;
+  }
+
+  try {
+    state.grantedSerialPorts = await getGrantedSerialPorts();
+  } catch (error) {
+    state.serialPower.lastError = error.message;
+  }
+  renderGrantedSerialPorts();
+  renderSensorConnectStatus();
+}
+
+function renderGrantedSerialPorts() {
+  const selectedValue = elements.serialPortSelect.value;
+  const options = [
+    '<option value="">Use browser picker</option>',
+    ...state.grantedSerialPorts.map((port, index) => (
+      `<option value="${index}">${escapeHtml(getSerialPortLabel(port, index))}</option>`
+    )),
+  ];
+
+  elements.serialPortSelect.innerHTML = options.join("");
+  if (selectedValue && Number(selectedValue) < state.grantedSerialPorts.length) {
+    elements.serialPortSelect.value = selectedValue;
+  }
+  elements.serialPortSelect.disabled = !state.serialPower.supported;
+}
+
+function getSelectedGrantedSerialPort() {
+  const selectedValue = elements.serialPortSelect.value;
+  if (selectedValue === "") return null;
+  const index = Number(selectedValue);
+  if (!Number.isInteger(index)) return null;
+  return state.grantedSerialPorts[index] ?? null;
+}
+
+function updateSerialPowerSensorValue(measurement) {
+  const sensor = state.activeSensors[SENSOR_TYPES.power];
+  if (!sensor || sensor.id !== "powerbahn-usb-serial") return;
+
+  sensor.connected = true;
+  sensor.live = true;
+  sensor.value = measurement.power;
+  sensor.cadence = measurement.cadence;
+  sensor.heartRate = measurement.heartRate;
+  sensor.lastSeen = new Date();
+  sensor.rawPacket = measurement.rawHex;
+
+  updatePowerDisplayHistory();
   renderAll(true);
 }
 
@@ -631,6 +759,12 @@ function disconnectBluetoothSensor(type) {
   state.bluetoothConnections[type] = null;
 }
 
+function getSerialConnectError(error) {
+  if (error.name === "NotFoundError") return "No Powerbahn serial port selected.";
+  if (error.name === "SecurityError") return "Serial port access was blocked by browser permissions.";
+  return error.message || "Unable to connect to the Powerbahn serial port.";
+}
+
 function updateBluetoothSensorValue(sensor, dataView) {
   if (sensor.type === SENSOR_TYPES.heartRate) {
     const measurement = parseBluetoothHeartRateMeasurement(dataView);
@@ -652,7 +786,16 @@ function setSensorConnectStatus(message, { busyType = null, error = false } = {}
 
 function renderSensorConnectStatus() {
   if (!elements.sensorConnectStatus) return;
-  elements.sensorConnectStatus.textContent = state.sensorConnect.message;
+  const requestedPort = state.serialPortName ? `SerialPort=${state.serialPortName}` : "SerialPort not set";
+  const selectedPort = getSelectedGrantedSerialPort()
+    ? ` · selected ${getSerialPortLabel(getSelectedGrantedSerialPort(), Number(elements.serialPortSelect.value))}`
+    : "";
+  const serialSuffix = state.serialPower.lastError
+    ? ` · ${state.serialPower.status}`
+    : state.serialPower.connected
+      ? ` · ${state.serialPower.status}`
+      : "";
+  elements.sensorConnectStatus.textContent = `${state.sensorConnect.message} · ${requestedPort}${selectedPort}${serialSuffix}`;
   elements.sensorConnectStatus.classList.toggle("warning", state.sensorConnect.error);
   elements.sensorConnectStatus.classList.toggle("busy", Boolean(state.sensorConnect.busyType));
 }
@@ -707,6 +850,7 @@ function renderSensors() {
           ${sensor.cadence == null ? "" : `<span>${sensor.cadence} RPM</span>`}
           ${sensor.balance == null ? "" : `<span>${sensor.balance}% L</span>`}
           ${sensor.battery == null ? "" : `<span>${sensor.battery}% battery</span>`}
+          ${sensor.rawPacket == null ? "" : `<span title="${escapeHtml(sensor.rawPacket)}">serial packet</span>`}
         </div>
       </article>
     `)
@@ -730,6 +874,12 @@ function updateSourceButtons() {
   });
   elements.useBluetoothPowerButton.disabled = Boolean(busyType);
   elements.useBluetoothHeartButton.disabled = Boolean(busyType);
+  elements.useSerialPowerButton.disabled = busyType === SENSOR_TYPES.power;
+  elements.useSerialPowerButton.textContent = busyType === SENSOR_TYPES.power
+    ? "Connecting..."
+    : state.serialPower.connected
+      ? "Serial Connected"
+      : "Serial Power";
   elements.useBluetoothPowerButton.textContent = busyType === SENSOR_TYPES.power
     ? "Searching..."
     : "Search BLE Power";

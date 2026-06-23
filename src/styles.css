@@ -327,6 +327,38 @@ th {
   margin-bottom: 14px;
 }
 
+.serial-port-panel {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(200px, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+  margin-bottom: 14px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.serial-port-panel label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.serial-port-panel input,
+.serial-port-panel select {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0 10px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+}
+
 .sensor-connect-prompt {
   margin-bottom: 14px;
   padding: 10px 12px;
@@ -577,6 +609,7 @@ input {
   .dashboard-grid,
   .split-view,
   .sensor-grid,
+  .serial-port-panel,
   .resistance-controls,
   .settings-grid {
     grid-template-columns: 1fr;

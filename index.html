@@ -116,6 +116,19 @@
               <button class="secondary-button" id="useAntHeartButton">ANT+ HR</button>
             </div>
           </div>
+          <div class="serial-port-panel">
+            <label>
+              SerialPort
+              <input id="serialPortInput" name="serialPort" value="COM7" placeholder="COM7 or /dev/cu.usbserial" autocomplete="off">
+            </label>
+            <label>
+              Granted browser port
+              <select id="serialPortSelect">
+                <option value="">Use browser picker</option>
+              </select>
+            </label>
+            <button class="secondary-button" id="refreshSerialPortsButton" type="button">Refresh Ports</button>
+          </div>
           <div class="sensor-connect-prompt" id="sensorConnectStatus" role="status" aria-live="polite">Ready to search Bluetooth sensors</div>
           <div class="sensor-grid" id="sensorCards"></div>
           <section class="resistance-panel">
