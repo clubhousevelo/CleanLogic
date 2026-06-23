@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PurelyFit Modern</title>
+    <link rel="stylesheet" href="./src/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">PF</div>
+          <div>
+            <h1>PurelyFit</h1>
+            <p>Modern telemetry prototype</p>
+          </div>
+        </div>
+        <nav class="nav">
+          <button class="nav-item active" data-panel="dashboard">Dashboard</button>
+          <button class="nav-item" data-panel="sensors">Sensors</button>
+          <button class="nav-item" data-panel="sessions">Sessions</button>
+          <button class="nav-item" data-panel="customers">Customers</button>
+          <button class="nav-item" data-panel="settings">Settings</button>
+        </nav>
+        <div class="connection-card">
+          <span class="status-dot" id="statusDot"></span>
+          <div>
+            <strong id="connectionStatus">Replay offline</strong>
+            <span id="sampleCounter">0 samples</span>
+          </div>
+        </div>
+      </aside>
+
+      <main>
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Replay source</p>
+            <h2 id="screenTitle">Live Dashboard</h2>
+          </div>
+          <div class="controls">
+            <button id="playPauseButton" class="primary-button">Start Replay</button>
+            <button id="stepButton" class="icon-button" title="Step one sample">Step</button>
+            <label class="speed-control">
+              <span>Speed</span>
+              <input id="speedSlider" type="range" min="1" max="12" value="4" />
+            </label>
+          </div>
+        </header>
+
+        <section class="panel active" id="dashboardPanel">
+          <div class="metric-grid">
+            <article class="metric">
+              <span>3s Power</span>
+              <strong id="powerValue">0 W</strong>
+              <small id="powerAverage">avg 0 W</small>
+            </article>
+            <article class="metric">
+              <span>Cadence</span>
+              <strong id="cadenceValue">0 RPM</strong>
+              <small id="cadenceAverage">avg 0 RPM</small>
+            </article>
+            <article class="metric">
+              <span>Speed</span>
+              <strong id="speedValue">0.0 mph</strong>
+              <small id="distanceValue">0.00 mi</small>
+            </article>
+            <article class="metric">
+              <span>Heart</span>
+              <strong id="heartValue">-- bpm</strong>
+              <small id="calorieValue">0 kcal</small>
+            </article>
+          </div>
+
+          <div class="dashboard-grid">
+            <section class="chart-panel">
+              <div class="panel-heading">
+                <h3>Torque Balance</h3>
+                <span id="balanceValue">50 / 50</span>
+              </div>
+              <canvas id="balanceCanvas" width="520" height="220"></canvas>
+            </section>
+            <section class="chart-panel">
+              <div class="panel-heading">
+                <h3>Power Trend</h3>
+                <span id="trendStatus">idle</span>
+              </div>
+              <canvas id="trendCanvas" width="760" height="220"></canvas>
+            </section>
+            <section class="chart-panel polar-card">
+              <div class="panel-heading">
+                <h3>Left Polar</h3>
+                <span id="leftPeak">peak 0</span>
+              </div>
+              <canvas id="leftPolarCanvas" width="360" height="360"></canvas>
+            </section>
+            <section class="chart-panel polar-card">
+              <div class="panel-heading">
+                <h3>Right Polar</h3>
+                <span id="rightPeak">peak 0</span>
+              </div>
+              <canvas id="rightPolarCanvas" width="360" height="360"></canvas>
+            </section>
+          </div>
+        </section>
+
+        <section class="panel" id="sensorsPanel">
+          <div class="table-toolbar">
+            <h3>Power & Heart Rate Sensors</h3>
+            <div class="controls compact">
+              <button class="secondary-button" id="useSerialPowerButton">Serial Power</button>
+              <button class="secondary-button" id="useBluetoothPowerButton">Search BLE Power</button>
+              <button class="secondary-button" id="useAntPowerButton">ANT+ Power</button>
+              <button class="secondary-button" id="useSerialHeartButton">Serial HR</button>
+              <button class="secondary-button" id="useBluetoothHeartButton">Search BLE HR</button>
+              <button class="secondary-button" id="useAntHeartButton">ANT+ HR</button>
+            </div>
+          </div>
+          <div class="sensor-connect-prompt" id="sensorConnectStatus" role="status" aria-live="polite">Ready to search Bluetooth sensors</div>
+          <div class="sensor-grid" id="sensorCards"></div>
+          <section class="resistance-panel">
+            <div class="panel-heading">
+              <div>
+                <h3>Resistance Unit</h3>
+                <span id="resistanceStatus">Disconnected</span>
+              </div>
+              <div class="controls compact">
+                <button class="secondary-button" id="connectResistanceButton">Connect FTMS</button>
+                <button class="secondary-button" id="releaseResistanceButton">Release</button>
+                <button class="secondary-button" id="disconnectResistanceButton">Disconnect</button>
+              </div>
+            </div>
+            <div class="resistance-controls">
+              <label>
+                Fixed power
+                <input id="resistanceTargetInput" type="number" min="0" max="1200" step="5" value="150" />
+              </label>
+              <div class="resistance-slider-wrap" id="resistanceSliderWrap">
+                <input id="resistanceTargetSlider" type="hidden" value="150" />
+                <div
+                  class="power-slider"
+                  id="resistancePowerSlider"
+                  role="slider"
+                  tabindex="0"
+                  aria-label="Fixed power"
+                  aria-valuemin="0"
+                  aria-valuemax="1200"
+                  aria-valuenow="150"
+                  aria-valuetext="150 W"
+                >
+                  <div class="power-slider-track">
+                    <div class="power-slider-fill"></div>
+                    <div class="power-slider-thumb"></div>
+                  </div>
+                  <div class="power-slider-ticks" aria-hidden="true">
+                    <span style="--tick: 0%">0</span>
+                    <span style="--tick: 16.6667%">200</span>
+                    <span style="--tick: 33.3333%">400</span>
+                    <span style="--tick: 50%">600</span>
+                    <span style="--tick: 66.6667%">800</span>
+                    <span style="--tick: 83.3333%">1000</span>
+                    <span style="--tick: 100%">1200 W</span>
+                  </div>
+                </div>
+              </div>
+              <button class="primary-button" id="applyResistanceButton">Stage 150 W</button>
+            </div>
+            <div class="resistance-step-buttons" aria-label="Adjust fixed power">
+              <div class="power-step">
+                <button class="secondary-button" data-power-step="5">+</button>
+                <strong>5 W</strong>
+                <button class="secondary-button" data-power-step="-5">-</button>
+              </div>
+              <div class="power-step">
+                <button class="secondary-button" data-power-step="10">+</button>
+                <strong>10 W</strong>
+                <button class="secondary-button" data-power-step="-10">-</button>
+              </div>
+              <div class="power-step">
+                <button class="secondary-button" data-power-step="25">+</button>
+                <strong>25 W</strong>
+                <button class="secondary-button" data-power-step="-25">-</button>
+              </div>
+              <div class="power-step">
+                <button class="secondary-button" data-power-step="100">+</button>
+                <strong>100 W</strong>
+                <button class="secondary-button" data-power-step="-100">-</button>
+              </div>
+            </div>
+          </section>
+          <div class="note">Choose one active power source and one active heart-rate source. Bluetooth LE targets standard Cycling Power, Heart Rate, and Fitness Machine services; ANT+ will use a USB ANT stick in the desktop wrapper.</div>
+        </section>
+
+        <section class="panel" id="sessionsPanel">
+          <div class="table-toolbar">
+            <h3>Recorded Sessions</h3>
+            <button class="secondary-button" id="recordSessionButton">Save Current Replay</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Session</th>
+                  <th>Date</th>
+                  <th>Avg Power</th>
+                  <th>Avg Cadence</th>
+                  <th>Balance</th>
+                </tr>
+              </thead>
+              <tbody id="sessionRows"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel" id="customersPanel">
+          <div class="split-view">
+            <form class="form-panel" id="customerForm">
+              <h3>Customer</h3>
+              <label>First name<input name="firstName" value="Sample" /></label>
+              <label>Last name<input name="lastName" value="Rider" /></label>
+              <label>Email<input name="email" value="sample@local.test" /></label>
+              <label>Phone<input name="phone" value="555-0100" /></label>
+              <button class="primary-button" type="submit">Save Customer</button>
+            </form>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Phone</th>
+                  </tr>
+                </thead>
+                <tbody id="customerRows"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel" id="settingsPanel">
+          <div class="settings-grid">
+            <label>Bike serial port<input id="bikePortInput" value="COM7" /></label>
+            <label>Heart-rate serial port<input id="heartPortInput" value="COM8" /></label>
+            <label>Capture interval<input id="captureTimeInput" type="number" value="3" min="1" /></label>
+            <label>Power filter coefficient<input id="filterInput" type="number" value="0.92" min="0" max="1" step="0.01" /></label>
+          </div>
+          <div class="note">Hardware source: replay with optional simulated external sensors</div>
+        </section>
+      </main>
+    </div>
+
+    <script type="module" src="./src/app.js"></script>
+  </body>
+</html>
