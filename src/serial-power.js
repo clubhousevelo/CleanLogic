@@ -30,6 +30,81 @@ const POWERBAHN_DASHBOARD_POLL = new Uint8Array([
   FRAME_END,
 ]);
 
+const POWERBAHN_CONFIG = new Uint8Array([
+  FRAME_START,
+  0x1a,
+  0x1d,
+  0x6a,
+  0x4b,
+  0x35,
+  0x70,
+  0x90,
+  0xe1,
+  0x19,
+  0x5b,
+  0xcb,
+  0x23,
+  0xda,
+  0xf9,
+  0x8e,
+  0xc3,
+  0x38,
+  0x46,
+  0xdd,
+  0xf6,
+  0xd0,
+  0x7e,
+  0x3f,
+  0x5b,
+  0x8a,
+  0xe3,
+  0xc4,
+  0x93,
+  0xda,
+  0x45,
+  0x7a,
+  0x92,
+  FRAME_END,
+]);
+
+const POWERBAHN_TORQUE_SETUP = new Uint8Array([
+  FRAME_START,
+  0x9e,
+  0x03,
+  0xe9,
+  0x03,
+  0x02,
+  0x75,
+  FRAME_END,
+]);
+
+const POWERBAHN_TORQUE_RANGE_REQUESTS = [
+  [0xb4, 0x05, 0x78, 0x54],
+  [0xf3, 0x00, 0x05, 0x78, 0x10],
+  [0x2c, 0x06, 0x78, 0xcf],
+  [0x68, 0x06, 0x78, 0x8b],
+  [0xa4, 0x06, 0x78, 0x47],
+  [0xe0, 0x06, 0x78, 0x03],
+].map((payload) => new Uint8Array([
+  FRAME_START,
+  0x9e,
+  0x03,
+  ...payload,
+  FRAME_END,
+]));
+
+const POWERBAHN_STARTUP_SEQUENCE = [
+  ["wake", POWERBAHN_WAKE, 120],
+  ["config", POWERBAHN_CONFIG, 220],
+  ["dashboard", POWERBAHN_DASHBOARD_POLL, 80],
+  ["torque setup", POWERBAHN_TORQUE_SETUP, 80],
+  ...POWERBAHN_TORQUE_RANGE_REQUESTS.map((frame, index) => [
+    `torque range ${index + 1}`,
+    frame,
+    40,
+  ]),
+];
+
 export function createSerialPowerController() {
   const supported = typeof navigator !== "undefined" && Boolean(navigator.serial);
   return {
@@ -48,6 +123,7 @@ export function createSerialPowerController() {
     byteCount: 0,
     writeCount: 0,
     signals: null,
+    startupStep: null,
     pollTimer: null,
     readLoop: null,
     debugTimer: null,
@@ -115,8 +191,7 @@ export async function connectSerialPower(controller, {
   controller.debugTimer = window.setInterval(() => notifyDebug(controller), 500);
 
   await delay(OPEN_SETTLE_MS);
-  await writeFrame(controller, POWERBAHN_WAKE);
-  await writeFrame(controller, POWERBAHN_DASHBOARD_POLL);
+  await sendStartupSequence(controller);
   notifyDebug(controller);
   setSerialStatus(controller, `Connected to Powerbahn serial power${portLabel}`);
 }
@@ -232,6 +307,16 @@ async function writeFrame(controller, frame) {
   notifyDebug(controller);
 }
 
+async function sendStartupSequence(controller) {
+  for (const [label, frame, waitMs] of POWERBAHN_STARTUP_SEQUENCE) {
+    controller.startupStep = label;
+    setSerialStatus(controller, `Sending Powerbahn ${label}`);
+    await writeFrame(controller, frame);
+    await delay(waitMs);
+  }
+  controller.startupStep = "polling";
+}
+
 function handleFrame(controller, payload) {
   controller.lastPacketHex = toHex(payload);
   controller.lastFrameAt = new Date();
@@ -303,6 +388,7 @@ function resetSerialStats(controller) {
     byteCount: 0,
     writeCount: 0,
     signals: null,
+    startupStep: null,
   });
 }
 

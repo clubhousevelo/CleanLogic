@@ -856,6 +856,7 @@ function renderSerialDebug() {
     `writes ${serialPower.writeCount}`,
     `bytes ${serialPower.byteCount}`,
     serialPower.signals ?? "signals not set",
+    serialPower.startupStep ? `startup ${serialPower.startupStep}` : "startup pending",
     `last ${lastFrameAt}`,
     parsedText,
     rawText,
