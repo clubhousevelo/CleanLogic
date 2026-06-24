@@ -393,6 +393,7 @@ function renderAll(force) {
   const rawPower = powerSensor?.value ?? sample.power;
   const displayPower = getRollingPowerAverage();
   const displayCadence = powerSensor?.cadence ?? sample.cadence;
+  const displaySpeed = powerSensor?.speed ?? sample.speed;
   const displayHeart = heartSensor?.value ?? sample.heart;
   const averagePower = average(state.history, "power");
   const averageCadence = average(state.history, "cadence");
@@ -409,7 +410,7 @@ function renderAll(force) {
     : `raw ${Math.round(rawPower)} W · ride avg ${Math.round(averagePower)} W`;
   elements.cadenceValue.textContent = `${Math.round(displayCadence)} RPM`;
   elements.cadenceAverage.textContent = `avg ${Math.round(averageCadence)} RPM`;
-  elements.speedValue.textContent = `${sample.speed.toFixed(1)} mph`;
+  elements.speedValue.textContent = `${displaySpeed.toFixed(1)} mph`;
   elements.distanceValue.textContent = `${sample.distance.toFixed(2)} mi`;
   elements.heartValue.textContent = displayHeart ? `${Math.round(displayHeart)} bpm` : "-- bpm";
   elements.calorieValue.textContent = `${sample.calories} kcal`;
@@ -725,7 +726,12 @@ function updateSerialPowerSensorValue(measurement) {
   sensor.connected = true;
   sensor.live = true;
   sensor.value = measurement.power;
+  sensor.rawPower = measurement.rawPower;
+  sensor.filteredPower = measurement.filteredPower;
   sensor.cadence = measurement.cadence;
+  sensor.speed = measurement.speedMph;
+  sensor.speedRaw = measurement.speedRaw;
+  sensor.brakeRpm = measurement.brakeRpm;
   sensor.heartRate = measurement.heartRate;
   sensor.lastSeen = new Date();
   sensor.rawPacket = measurement.rawHex;
@@ -951,6 +957,8 @@ function renderSensors() {
         <div class="sensor-value">${escapeHtml(getSensorSummary(sensor))}</div>
         <div class="sensor-meta">
           ${sensor.cadence == null ? "" : `<span>${sensor.cadence} RPM</span>`}
+          ${sensor.speed == null ? "" : `<span>${sensor.speed.toFixed(1)} mph</span>`}
+          ${sensor.rawPower == null ? "" : `<span>raw ${Math.round(sensor.rawPower)} W</span>`}
           ${sensor.balance == null ? "" : `<span>${sensor.balance}% L</span>`}
           ${sensor.battery == null ? "" : `<span>${sensor.battery}% battery</span>`}
           ${sensor.rawFrameCount == null ? "" : `<span>${sensor.parsedFrameCount ?? 0}/${sensor.rawFrameCount} parsed frames</span>`}
