@@ -7,7 +7,6 @@ export const SENSOR_TRANSPORTS = {
   bluetooth: "Bluetooth LE",
   ant: "ANT+",
   serial: "Legacy Serial",
-  replay: "Replay",
 };
 
 export function createSensor({ id, name, type, transport }) {
@@ -104,7 +103,7 @@ export function createSimulatedSensorValue(sensor, tick) {
 
 export function getSensorSummary(sensor) {
   if (sensor.type === SENSOR_TYPES.heartRate) {
-    return sensor.value == null ? "-- bpm" : `${sensor.value} bpm`;
+    return sensor.value == null ? "-- bpm" : `${Math.round(sensor.value)} bpm`;
   }
-  return sensor.value == null ? "-- W" : `${sensor.value} W`;
+  return sensor.value == null ? "-- W" : `${Math.round(sensor.value)} W`;
 }

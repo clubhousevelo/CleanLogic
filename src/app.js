@@ -13,6 +13,9 @@ import {
   disconnectSerialPower,
   getGrantedSerialPorts,
   getSerialPortLabel,
+  setSerialFixedPower,
+  setSerialGear,
+  setSerialGrade,
 } from "./serial-power.js";
 import {
   clampPower,
@@ -23,12 +26,6 @@ import {
   setFixedResistancePower,
 } from "./resistance.js";
 
-const DATA_PATHS = {
-  dashboard: "./data/dashboard_data.csv",
-  leftPolar: "./data/left_plot_smoothed.csv",
-  rightPolar: "./data/right_plot_smoothed.csv",
-};
-
 const RESISTANCE_POWER_MIN = 0;
 const RESISTANCE_POWER_MAX = 1200;
 const RESISTANCE_POWER_STEP = 5;
@@ -38,6 +35,7 @@ const SERIAL_FLOW_STORAGE_KEY = "purelyfit.serialFlow";
 const SERIAL_DTR_STORAGE_KEY = "purelyfit.serialDtr";
 const SERIAL_RTS_STORAGE_KEY = "purelyfit.serialRts";
 const POWERBAHN_RELEASE_BAUD_RATE = 115200;
+const POWERBAHN_FIXED_POWER_MAX = 1000;
 
 const BLUETOOTH_SENSOR_PROFILES = {
   [SENSOR_TYPES.power]: {
@@ -55,15 +53,11 @@ const BLUETOOTH_SENSOR_PROFILES = {
 };
 
 const state = {
-  running: false,
   tick: 0,
-  speed: 4,
-  samples: [],
   history: [],
   powerDisplayHistory: [],
   activePowerSourceId: null,
-  leftPolar: [],
-  rightPolar: [],
+  lastTelemetry: null,
   activeSensors: {
     [SENSOR_TYPES.power]: null,
     [SENSOR_TYPES.heartRate]: null,
@@ -90,7 +84,6 @@ const state = {
     { firstName: "Sample", lastName: "Rider", email: "sample@local.test", phone: "555-0100" },
   ],
   lastFrame: 0,
-  timer: null,
 };
 
 const elements = {};
@@ -101,31 +94,37 @@ function bindElements() {
     "connectionStatus",
     "sampleCounter",
     "screenTitle",
-    "playPauseButton",
-    "stepButton",
-    "speedSlider",
     "powerValue",
     "powerAverage",
     "cadenceValue",
     "cadenceAverage",
     "speedValue",
-    "distanceValue",
-    "heartValue",
-    "calorieValue",
-    "balanceValue",
+    "speedRawValue",
+    "gradeValue",
+    "gradeTargetValue",
+    "gearValue",
+    "gearTargetValue",
+    "brakeRpmValue",
+    "brakeRpmStatusValue",
     "trendStatus",
-    "leftPeak",
-    "rightPeak",
-    "balanceCanvas",
     "trendCanvas",
-    "leftPolarCanvas",
-    "rightPolarCanvas",
+    "powerbahnSerialStatus",
+    "powerbahnControlStatus",
+    "powerbahnGradeInput",
+    "applyPowerbahnGradeButton",
+    "powerbahnGearInput",
+    "applyPowerbahnGearButton",
+    "powerbahnFixedPowerEnabledInput",
+    "powerbahnFixedPowerInput",
+    "applyPowerbahnFixedPowerButton",
+    "powerbahnFixedPowerState",
     "sessionRows",
     "customerRows",
     "recordSessionButton",
     "customerForm",
     "sensorCards",
     "useSerialPowerButton",
+    "disconnectSerialPowerButton",
     "useBluetoothPowerButton",
     "useAntPowerButton",
     "useSerialHeartButton",
@@ -158,21 +157,13 @@ async function boot() {
   bindElements();
   wireEvents();
   initializeSerialPortControls();
-  await loadReplayData();
   await refreshGrantedSerialPorts();
   renderCustomers();
-  recordSession("Baseline Replay");
   renderAll(true);
 }
 
 function wireEvents() {
-  elements.playPauseButton.addEventListener("click", toggleReplay);
-  elements.stepButton.addEventListener("click", () => advanceReplay(1));
-  elements.speedSlider.addEventListener("input", (event) => {
-    state.speed = Number(event.target.value);
-    if (state.running) restartTimer();
-  });
-  elements.recordSessionButton.addEventListener("click", () => recordSession("Replay Capture"));
+  elements.recordSessionButton.addEventListener("click", () => recordSession("Live Snapshot"));
   elements.customerForm.addEventListener("submit", (event) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
@@ -185,6 +176,7 @@ function wireEvents() {
     renderCustomers();
   });
   elements.useSerialPowerButton.addEventListener("click", connectPowerbahnSerialSensor);
+  elements.disconnectSerialPowerButton.addEventListener("click", disconnectPowerbahnSerialSensor);
   elements.serialPortInput.addEventListener("input", (event) => {
     state.serialPortName = event.target.value.trim();
     localStorage.setItem(SERIAL_PORT_STORAGE_KEY, state.serialPortName);
@@ -234,6 +226,23 @@ function wireEvents() {
     transport: SENSOR_TRANSPORTS.ant,
     name: "ANT+ Heart Strap",
   }));
+  elements.powerbahnGradeInput.addEventListener("input", () => {
+    syncPowerbahnTargetControls();
+  });
+  elements.powerbahnGearInput.addEventListener("input", () => {
+    syncPowerbahnTargetControls();
+  });
+  elements.applyPowerbahnGradeButton.addEventListener("click", applyPowerbahnGrade);
+  elements.applyPowerbahnGearButton.addEventListener("click", applyPowerbahnGear);
+  elements.powerbahnFixedPowerEnabledInput.addEventListener("change", applyPowerbahnFixedPower);
+  elements.powerbahnFixedPowerInput.addEventListener("input", syncPowerbahnFixedPowerControls);
+  elements.applyPowerbahnFixedPowerButton.addEventListener("click", applyPowerbahnFixedPower);
+  document.querySelectorAll("[data-grade-step]").forEach((button) => {
+    button.addEventListener("click", () => adjustPowerbahnGrade(Number(button.dataset.gradeStep)));
+  });
+  document.querySelectorAll("[data-gear-step]").forEach((button) => {
+    button.addEventListener("click", () => adjustPowerbahnGear(Number(button.dataset.gearStep)));
+  });
   state.resistance.onStatus = () => renderResistanceControl();
   elements.resistanceTargetInput.addEventListener("input", syncResistanceTarget);
   elements.resistancePowerSlider.addEventListener("pointerdown", handleResistanceSliderPointer);
@@ -274,110 +283,17 @@ function initializeSerialPortControls() {
   elements.serialDtrInput.checked = state.serialDtr;
   elements.serialRtsInput.checked = state.serialRts;
   elements.refreshSerialPortsButton.disabled = !state.serialPower.supported;
-}
-
-async function loadReplayData() {
-  const [dashboardCsv, leftCsv, rightCsv] = await Promise.all([
-    fetchText(DATA_PATHS.dashboard),
-    fetchText(DATA_PATHS.leftPolar),
-    fetchText(DATA_PATHS.rightPolar),
-  ]);
-  state.samples = parseDashboardCsv(dashboardCsv);
-  state.leftPolar = parsePolarCsv(leftCsv);
-  state.rightPolar = parsePolarCsv(rightCsv);
-  state.activeSensors[SENSOR_TYPES.power] = createSensor({
-    id: "legacy-bike-serial",
-    name: "Legacy Bike Replay",
-    type: SENSOR_TYPES.power,
-    transport: SENSOR_TRANSPORTS.serial,
-  });
-  state.activeSensors[SENSOR_TYPES.heartRate] = createSensor({
-    id: "legacy-heart-serial",
-    name: "Legacy HR Replay",
-    type: SENSOR_TYPES.heartRate,
-    transport: SENSOR_TRANSPORTS.serial,
-  });
-  updateSensors();
-}
-
-async function fetchText(path) {
-  const response = await fetch(path);
-  if (!response.ok) throw new Error(`Unable to load ${path}`);
-  return response.text();
-}
-
-function parseDashboardCsv(csv) {
-  return csv
-    .trim()
-    .split(/\r?\n/)
-    .map((line, index) => {
-      const cols = line.split(",").map((value) => Number(value.trim()) || 0);
-      const rawSpeed = cols[1] ?? 0;
-      const rawCadence = cols[4] ?? 0;
-      const rawPower = cols[6] ?? 0;
-      const rawHeart = cols[8] ?? 0;
-      const grade = cols[2] ?? 0;
-      const gear = cols[3] ?? 0;
-      const seconds = index * 3;
-      return {
-        index,
-        seconds,
-        speed: rawSpeed / 3.1,
-        cadence: rawCadence,
-        power: rawPower,
-        heart: rawHeart || null,
-        grade,
-        gear,
-        distance: (rawSpeed / 3.1) * (seconds / 3600),
-        calories: Math.round((rawPower * seconds) / 4184),
-      };
-    });
-}
-
-function parsePolarCsv(csv) {
-  return csv
-    .trim()
-    .split(/\r?\n/)
-    .map((line) => {
-      const cols = line.split(",").map((value) => Number(value.trim()) || 0);
-      return { angle: cols[0], value: cols[1] };
-    })
-    .filter((point) => Number.isFinite(point.angle) && Number.isFinite(point.value));
-}
-
-function toggleReplay() {
-  state.running = !state.running;
-  elements.playPauseButton.textContent = state.running ? "Pause Replay" : "Start Replay";
-  elements.connectionStatus.textContent = state.running ? "Replay running" : "Replay paused";
-  elements.statusDot.classList.toggle("live", state.running);
-  restartTimer();
-}
-
-function restartTimer() {
-  clearInterval(state.timer);
-  if (!state.running) return;
-  state.timer = setInterval(() => advanceReplay(1), Math.max(20, 180 / state.speed));
-}
-
-function advanceReplay(count) {
-  for (let i = 0; i < count; i += 1) {
-    const sample = state.samples[state.tick % state.samples.length];
-    state.history.push(sample);
-    if (state.history.length > 240) state.history.shift();
-    state.tick += 1;
-    updateSensors();
-    updatePowerDisplayHistory();
-  }
-  renderAll(false);
+  elements.powerbahnGradeInput.value = state.serialPower.targetGrade;
+  elements.powerbahnGearInput.value = state.serialPower.targetGear;
+  elements.powerbahnFixedPowerEnabledInput.checked = state.serialPower.fixedPowerEnabled;
+  elements.powerbahnFixedPowerInput.value = state.serialPower.targetFixedPower;
 }
 
 function getCurrentSample() {
-  return state.history.at(-1) ?? state.samples[0] ?? {
+  return state.history.at(-1) ?? {
     power: 0,
     cadence: 0,
     speed: 0,
-    distance: 0,
-    calories: 0,
     heart: null,
   };
 }
@@ -387,86 +303,48 @@ function renderAll(force) {
   if (!force && now - state.lastFrame < 33) return;
   state.lastFrame = now;
 
-  const sample = getCurrentSample();
   const powerSensor = getBestSensor(SENSOR_TYPES.power);
-  const heartSensor = getBestSensor(SENSOR_TYPES.heartRate);
-  const rawPower = powerSensor?.value ?? sample.power;
+  const rawPower = powerSensor?.rawPower ?? powerSensor?.value ?? null;
   const displayPower = getRollingPowerAverage();
-  const displayCadence = powerSensor?.cadence ?? sample.cadence;
-  const displaySpeed = powerSensor?.speed ?? sample.speed;
-  const displayHeart = heartSensor?.value ?? sample.heart;
+  const displayCadence = powerSensor?.cadence ?? null;
+  const displaySpeed = powerSensor?.speed ?? null;
+  const displayGrade = powerSensor?.grade ?? null;
+  const displayGear = powerSensor?.gear ?? null;
+  const displayBrakeRpm = powerSensor?.brakeRpm ?? null;
   const averagePower = average(state.history, "power");
   const averageCadence = average(state.history, "cadence");
-  const leftAvg = averagePoints(state.leftPolar);
-  const rightAvg = averagePoints(state.rightPolar);
-  const total = Math.max(1, leftAvg + rightAvg);
-  const leftPercent = Math.round((leftAvg / total) * 100);
-  const rightPercent = 100 - leftPercent;
 
-  elements.sampleCounter.textContent = `${state.tick} samples`;
-  elements.powerValue.textContent = `${Math.round(displayPower)} W`;
+  renderPowerbahnConnectionStatus();
+  elements.powerValue.textContent = displayPower == null ? "-- W" : `${Math.round(displayPower)} W`;
   elements.powerAverage.textContent = powerSensor
-    ? `${powerSensor.name} · raw ${Math.round(rawPower)} W`
-    : `raw ${Math.round(rawPower)} W · ride avg ${Math.round(averagePower)} W`;
-  elements.cadenceValue.textContent = `${Math.round(displayCadence)} RPM`;
-  elements.cadenceAverage.textContent = `avg ${Math.round(averageCadence)} RPM`;
-  elements.speedValue.textContent = `${displaySpeed.toFixed(1)} mph`;
-  elements.distanceValue.textContent = `${sample.distance.toFixed(2)} mi`;
-  elements.heartValue.textContent = displayHeart ? `${Math.round(displayHeart)} bpm` : "-- bpm";
-  elements.calorieValue.textContent = `${sample.calories} kcal`;
-  elements.balanceValue.textContent = leftAvg === 0 && rightAvg > 0
-    ? `sample data: ${leftPercent} / ${rightPercent}`
-    : `${leftPercent} / ${rightPercent}`;
-  elements.trendStatus.textContent = state.running ? "streaming" : "idle";
-  elements.leftPeak.textContent = `peak ${Math.round(maxPoint(state.leftPolar))}`;
-  elements.rightPeak.textContent = `peak ${Math.round(maxPoint(state.rightPolar))}`;
+    ? `${powerSensor.name} · raw ${formatWholeNumber(rawPower)} W · avg ${formatWholeNumber(averagePower)} W`
+    : "Waiting for live PowerBahn power";
+  elements.cadenceValue.textContent = formatWholeUnit(displayCadence, "RPM");
+  elements.cadenceAverage.textContent = state.history.length
+    ? `avg ${formatWholeNumber(averageCadence)} RPM`
+    : "avg -- RPM";
+  elements.speedValue.textContent = displaySpeed == null ? "-- mph" : `${displaySpeed.toFixed(1)} mph`;
+  elements.speedRawValue.textContent = powerSensor?.speedRaw == null ? "raw --" : `raw ${Math.round(powerSensor.speedRaw)}`;
+  elements.gradeValue.textContent = displayGrade == null ? "--%" : `${displayGrade.toFixed(1)}%`;
+  elements.gradeTargetValue.textContent = `target ${state.serialPower.targetGrade}%`;
+  elements.gearValue.textContent = displayGear == null ? "--" : String(Math.round(displayGear));
+  elements.gearTargetValue.textContent = `target ${state.serialPower.targetGear}`;
+  elements.brakeRpmValue.textContent = formatWholeNumber(displayBrakeRpm);
+  elements.brakeRpmStatusValue.textContent = powerSensor?.brakeRpmStatus == null
+    ? "status --"
+    : `status ${powerSensor.brakeRpmStatus}`;
+  elements.trendStatus.textContent = state.serialPower.connected ? "live" : "waiting";
 
-  drawBalance(elements.balanceCanvas, leftPercent, rightPercent);
   drawTrend(elements.trendCanvas, state.history);
-  drawPolar(elements.leftPolarCanvas, state.leftPolar, "#0f766e");
-  drawPolar(elements.rightPolarCanvas, state.rightPolar, "#d64045");
   renderSensors();
   renderSensorConnectStatus();
+  renderPowerbahnControl();
   renderResistanceControl();
 }
 
 function average(items, key) {
   if (!items.length) return 0;
   return items.reduce((sum, item) => sum + item[key], 0) / items.length;
-}
-
-function averagePoints(points) {
-  if (!points.length) return 0;
-  return points.reduce((sum, item) => sum + Math.max(0, item.value), 0) / points.length;
-}
-
-function maxPoint(points) {
-  return points.reduce((max, point) => Math.max(max, point.value), 0);
-}
-
-function drawBalance(canvas, left, right) {
-  const ctx = prepareCanvas(canvas);
-  const { width, height } = getCanvasSize(canvas);
-  ctx.clearRect(0, 0, width, height);
-  drawRoundedBar(ctx, 30, 78, width - 60, 54, "#edf2f4");
-  drawRoundedBar(ctx, 30, 78, (width - 60) * (left / 100), 54, "#0f766e");
-  drawRoundedBar(ctx, 30 + (width - 60) * (left / 100), 78, (width - 60) * (right / 100), 54, "#d64045");
-  ctx.fillStyle = "#172026";
-  ctx.font = "700 30px system-ui";
-  ctx.textAlign = "center";
-  ctx.fillText(`${left}% left`, width * 0.25, 55);
-  ctx.fillText(`${right}% right`, width * 0.75, 55);
-  ctx.font = "600 13px system-ui";
-  ctx.fillStyle = "#62717a";
-  ctx.fillText("smoothed torque distribution", width / 2, 162);
-}
-
-function drawRoundedBar(ctx, x, y, width, height, color) {
-  const radius = Math.min(10, height / 2, Math.abs(width) / 2);
-  ctx.fillStyle = color;
-  ctx.beginPath();
-  ctx.roundRect(x, y, Math.max(0, width), height, radius);
-  ctx.fill();
 }
 
 function drawTrend(canvas, history) {
@@ -500,49 +378,6 @@ function drawGrid(ctx, width, height) {
   }
 }
 
-function drawPolar(canvas, points, color) {
-  const ctx = prepareCanvas(canvas);
-  const { width, height } = getCanvasSize(canvas);
-  const centerX = width / 2;
-  const centerY = height / 2;
-  const radius = Math.min(width, height) * 0.42;
-  const peak = Math.max(1, maxPoint(points));
-  ctx.clearRect(0, 0, width, height);
-
-  ctx.strokeStyle = "#d9e1e5";
-  ctx.lineWidth = 1;
-  for (let ring = 1; ring <= 4; ring += 1) {
-    ctx.beginPath();
-    ctx.arc(centerX, centerY, (radius / 4) * ring, 0, Math.PI * 2);
-    ctx.stroke();
-  }
-  for (let deg = 0; deg < 360; deg += 45) {
-    const rad = toRadians(deg - 90);
-    ctx.beginPath();
-    ctx.moveTo(centerX, centerY);
-    ctx.lineTo(centerX + Math.cos(rad) * radius, centerY + Math.sin(rad) * radius);
-    ctx.stroke();
-  }
-
-  ctx.fillStyle = color;
-  ctx.globalAlpha = 0.18;
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 2.5;
-  ctx.beginPath();
-  points.forEach((point, index) => {
-    const rad = toRadians(point.angle - 90);
-    const valueRadius = (Math.max(0, point.value) / peak) * radius;
-    const x = centerX + Math.cos(rad) * valueRadius;
-    const y = centerY + Math.sin(rad) * valueRadius;
-    if (index === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
-  });
-  ctx.closePath();
-  ctx.fill();
-  ctx.globalAlpha = 1;
-  ctx.stroke();
-}
-
 function prepareCanvas(canvas) {
   const ratio = window.devicePixelRatio || 1;
   const { width: cssWidth, height: cssHeight } = getCanvasSize(canvas);
@@ -565,30 +400,24 @@ function getCanvasSize(canvas) {
   };
 }
 
-function toRadians(deg) {
-  return (deg * Math.PI) / 180;
-}
-
 function recordSession(name) {
-  const history = state.history.length ? state.history : state.samples.slice(0, 30);
-  const leftAvg = averagePoints(state.leftPolar);
-  const rightAvg = averagePoints(state.rightPolar);
-  const total = Math.max(1, leftAvg + rightAvg);
+  const history = state.history;
   state.sessions.unshift({
     name,
     date: new Date().toLocaleString(),
     power: Math.round(average(history, "power")),
     cadence: Math.round(average(history, "cadence")),
-    balance: `${Math.round((leftAvg / total) * 100)} / ${Math.round((rightAvg / total) * 100)}`,
+    samples: history.length,
   });
   renderSessions();
 }
 
 function updatePowerDisplayHistory() {
-  const sample = getCurrentSample();
   const powerSensor = getBestSensor(SENSOR_TYPES.power);
-  const power = powerSensor?.value ?? sample.power;
-  const sourceId = powerSensor?.id ?? "replay";
+  if (!powerSensor) return;
+
+  const power = powerSensor.value;
+  const sourceId = powerSensor.id;
   const now = performance.now();
   if (state.activePowerSourceId !== sourceId) {
     state.activePowerSourceId = sourceId;
@@ -610,7 +439,7 @@ function trimPowerDisplayHistory(now = performance.now()) {
 
 function getRollingPowerAverage() {
   trimPowerDisplayHistory();
-  if (!state.powerDisplayHistory.length) return getCurrentSample().power;
+  if (!state.powerDisplayHistory.length) return null;
   return state.powerDisplayHistory.reduce((sum, item) => sum + item.power, 0) / state.powerDisplayHistory.length;
 }
 
@@ -680,6 +509,20 @@ async function connectPowerbahnSerialSensor() {
   }
 }
 
+async function disconnectPowerbahnSerialSensor() {
+  await disconnectSerialPower(state.serialPower);
+  const sensor = state.activeSensors[SENSOR_TYPES.power];
+  if (sensor?.id === "powerbahn-usb-serial") {
+    sensor.connected = false;
+    sensor.live = false;
+    sensor.value = null;
+  }
+  state.activePowerSourceId = null;
+  state.powerDisplayHistory = [];
+  setSensorConnectStatus(state.serialPower.status);
+  renderAll(true);
+}
+
 async function refreshGrantedSerialPorts() {
   if (!state.serialPower.supported) {
     renderGrantedSerialPorts();
@@ -731,10 +574,27 @@ function updateSerialPowerSensorValue(measurement) {
   sensor.cadence = measurement.cadence;
   sensor.speed = measurement.speedMph;
   sensor.speedRaw = measurement.speedRaw;
+  sensor.grade = measurement.grade;
+  sensor.gradeRaw = measurement.gradeRaw;
+  sensor.gradeStatus = measurement.gradeStatus;
+  sensor.gear = measurement.gear;
   sensor.brakeRpm = measurement.brakeRpm;
-  sensor.heartRate = measurement.heartRate;
+  sensor.brakeRpmStatus = measurement.brakeRpmStatus;
   sensor.lastSeen = new Date();
   sensor.rawPacket = measurement.rawHex;
+  state.lastTelemetry = measurement;
+  state.tick += 1;
+  state.history.push({
+    at: sensor.lastSeen,
+    power: measurement.power ?? 0,
+    rawPower: measurement.rawPower ?? 0,
+    cadence: measurement.cadence ?? 0,
+    speed: measurement.speedMph ?? 0,
+    grade: measurement.grade ?? 0,
+    gear: measurement.gear ?? 0,
+    brakeRpm: measurement.brakeRpm ?? 0,
+  });
+  if (state.history.length > 240) state.history.shift();
 
   updatePowerDisplayHistory();
   renderAll(true);
@@ -753,6 +613,7 @@ function updateSerialDebug({ rawHex, measurement }) {
   }
   renderSerialDebug();
   renderSensors();
+  renderPowerbahnConnectionStatus();
 }
 
 async function connectBluetoothSensor(type) {
@@ -878,6 +739,7 @@ function renderSensorConnectStatus() {
   elements.sensorConnectStatus.textContent = `${state.sensorConnect.message} · ${requestedPort}${baudText}${lineText}${selectedPort}${serialSuffix}`;
   elements.sensorConnectStatus.classList.toggle("warning", state.sensorConnect.error);
   elements.sensorConnectStatus.classList.toggle("busy", Boolean(state.sensorConnect.busyType));
+  renderPowerbahnConnectionStatus();
 }
 
 function renderSerialDebug() {
@@ -888,7 +750,12 @@ function renderSerialDebug() {
     ? serialPower.lastFrameAt.toLocaleTimeString()
     : "never";
   const parsedText = measurement
-    ? `parsed power=${measurement.power ?? "--"} cadence=${measurement.cadence ?? "--"}`
+    ? [
+        `parsed power=${formatWholeNumber(measurement.power)}`,
+        `cadence=${formatWholeNumber(measurement.cadence)}`,
+        `grade=${measurement.grade == null ? "--" : measurement.grade.toFixed(1)}`,
+        `gear=${formatWholeNumber(measurement.gear)}`,
+      ].join(" ")
     : "no parsed telemetry yet";
   const rawText = serialPower.lastPacketHex
     ? `last raw ${serialPower.lastPacketHex}`
@@ -901,6 +768,8 @@ function renderSerialDebug() {
     `bytes ${serialPower.byteCount}`,
     serialPower.portInfo ? `port ${serialPower.portInfo}` : "port unknown",
     serialPower.signals ?? "signals not set",
+    serialPower.encryptionSeedHex ? `seed ${serialPower.encryptionSeedHex}` : "seed pending",
+    serialPower.fixedPowerEnabled ? `fixed ${serialPower.targetFixedPower} W` : "fixed off",
     serialPower.startupStep ? `startup ${serialPower.startupStep}` : "startup pending",
     `last ${lastFrameAt}`,
     parsedText,
@@ -942,6 +811,14 @@ function getBestSensor(type) {
   return sensor?.connected && sensor.value != null ? sensor : null;
 }
 
+function formatWholeNumber(value) {
+  return value == null ? "--" : String(Math.round(value));
+}
+
+function formatWholeUnit(value, unit) {
+  return value == null ? `-- ${unit}` : `${Math.round(value)} ${unit}`;
+}
+
 function renderSensors() {
   elements.sensorCards.innerHTML = Object.values(state.activeSensors)
     .filter(Boolean)
@@ -956,8 +833,10 @@ function renderSensors() {
         </header>
         <div class="sensor-value">${escapeHtml(getSensorSummary(sensor))}</div>
         <div class="sensor-meta">
-          ${sensor.cadence == null ? "" : `<span>${sensor.cadence} RPM</span>`}
+          ${sensor.cadence == null ? "" : `<span>${Math.round(sensor.cadence)} RPM</span>`}
           ${sensor.speed == null ? "" : `<span>${sensor.speed.toFixed(1)} mph</span>`}
+          ${sensor.grade == null ? "" : `<span>${sensor.grade.toFixed(1)}% grade</span>`}
+          ${sensor.gear == null ? "" : `<span>gear ${Math.round(sensor.gear)}</span>`}
           ${sensor.rawPower == null ? "" : `<span>raw ${Math.round(sensor.rawPower)} W</span>`}
           ${sensor.balance == null ? "" : `<span>${sensor.balance}% L</span>`}
           ${sensor.battery == null ? "" : `<span>${sensor.battery}% battery</span>`}
@@ -986,18 +865,154 @@ function updateSourceButtons() {
   });
   elements.useBluetoothPowerButton.disabled = Boolean(busyType);
   elements.useBluetoothHeartButton.disabled = Boolean(busyType);
-  elements.useSerialPowerButton.disabled = busyType === SENSOR_TYPES.power;
+  elements.useSerialPowerButton.disabled = busyType === SENSOR_TYPES.power || state.serialPower.connected;
+  elements.disconnectSerialPowerButton.disabled = !state.serialPower.connected;
   elements.useSerialPowerButton.textContent = busyType === SENSOR_TYPES.power
     ? "Connecting..."
     : state.serialPower.connected
-      ? "Serial Connected"
-      : "Serial Power";
+      ? "PowerBahn Connected"
+      : "Connect PowerBahn";
   elements.useBluetoothPowerButton.textContent = busyType === SENSOR_TYPES.power
     ? "Searching..."
     : "Search BLE Power";
   elements.useBluetoothHeartButton.textContent = busyType === SENSOR_TYPES.heartRate
     ? "Searching..."
     : "Search BLE HR";
+}
+
+function syncPowerbahnTargetControls() {
+  const grade = normalizePowerbahnGrade(elements.powerbahnGradeInput.value);
+  const gear = normalizePowerbahnGear(elements.powerbahnGearInput.value);
+  state.serialPower.targetGrade = grade;
+  state.serialPower.targetGear = gear;
+  elements.powerbahnGradeInput.value = grade;
+  elements.powerbahnGearInput.value = gear;
+  renderPowerbahnControl();
+}
+
+function syncPowerbahnFixedPowerControls() {
+  const targetPower = normalizePowerbahnFixedPower(elements.powerbahnFixedPowerInput.value);
+  state.serialPower.targetFixedPower = targetPower;
+  elements.powerbahnFixedPowerInput.value = targetPower;
+  renderPowerbahnControl();
+}
+
+function adjustPowerbahnGrade(delta) {
+  elements.powerbahnGradeInput.value = normalizePowerbahnGrade(
+    state.serialPower.targetGrade + delta,
+  );
+  applyPowerbahnGrade();
+}
+
+function adjustPowerbahnGear(delta) {
+  elements.powerbahnGearInput.value = normalizePowerbahnGear(
+    state.serialPower.targetGear + delta,
+  );
+  applyPowerbahnGear();
+}
+
+async function applyPowerbahnGrade() {
+  const grade = normalizePowerbahnGrade(elements.powerbahnGradeInput.value);
+  state.serialPower.targetGrade = grade;
+  elements.powerbahnGradeInput.value = grade;
+  await runPowerbahnControlAction(() => setSerialGrade(state.serialPower, grade));
+}
+
+async function applyPowerbahnGear() {
+  const gear = normalizePowerbahnGear(elements.powerbahnGearInput.value);
+  state.serialPower.targetGear = gear;
+  elements.powerbahnGearInput.value = gear;
+  await runPowerbahnControlAction(() => setSerialGear(state.serialPower, gear));
+}
+
+async function applyPowerbahnFixedPower() {
+  const targetPower = normalizePowerbahnFixedPower(elements.powerbahnFixedPowerInput.value);
+  const enabled = elements.powerbahnFixedPowerEnabledInput.checked;
+  state.serialPower.targetFixedPower = targetPower;
+  state.serialPower.fixedPowerEnabled = enabled;
+  elements.powerbahnFixedPowerInput.value = targetPower;
+  await runPowerbahnControlAction(() => setSerialFixedPower(
+    state.serialPower,
+    enabled,
+    targetPower,
+  ));
+}
+
+async function runPowerbahnControlAction(action) {
+  renderPowerbahnControl();
+  try {
+    await action();
+  } catch (error) {
+    state.serialPower.lastError = error.message;
+    setSensorConnectStatus(`PowerBahn control failed: ${error.message}`, { error: true });
+  } finally {
+    renderPowerbahnControl();
+    renderSensorConnectStatus();
+  }
+}
+
+function normalizePowerbahnGrade(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return 0;
+  return Math.min(25, Math.max(0, Math.round(number)));
+}
+
+function normalizePowerbahnGear(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return 0;
+  return Math.min(255, Math.max(0, Math.round(number)));
+}
+
+function normalizePowerbahnFixedPower(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return 0;
+  return Math.min(POWERBAHN_FIXED_POWER_MAX, Math.max(0, Math.round(number)));
+}
+
+function renderPowerbahnConnectionStatus() {
+  const { serialPower } = state;
+  const isConnected = serialPower.connected;
+  const frameText = serialPower.frameCount
+    ? `${serialPower.parsedFrameCount}/${serialPower.frameCount} parsed frames`
+    : "No live frames";
+  elements.connectionStatus.textContent = isConnected ? "PowerBahn connected" : "PowerBahn offline";
+  elements.sampleCounter.textContent = frameText;
+  elements.powerbahnSerialStatus.textContent = serialPower.lastError
+    ? `${serialPower.status} · ${serialPower.lastError}`
+    : serialPower.status;
+  elements.statusDot.classList.toggle("live", isConnected && serialPower.parsedFrameCount > 0);
+}
+
+function renderPowerbahnControl() {
+  const { serialPower } = state;
+  const fixedPowerText = serialPower.fixedPowerEnabled
+    ? `fixed ${serialPower.targetFixedPower} W`
+    : "fixed off";
+  const activeFixedPowerText = serialPower.activeFixedPower == null
+    ? fixedPowerText
+    : serialPower.fixedPowerEnabled
+      ? `active ${serialPower.activeFixedPower} W`
+      : "active off";
+  elements.gradeTargetValue.textContent = `target ${serialPower.targetGrade}%`;
+  elements.gearTargetValue.textContent = `target ${serialPower.targetGear}`;
+  elements.powerbahnFixedPowerEnabledInput.checked = Boolean(serialPower.fixedPowerEnabled);
+  elements.powerbahnFixedPowerInput.value = serialPower.targetFixedPower;
+  elements.powerbahnFixedPowerState.textContent = activeFixedPowerText;
+  elements.powerbahnControlStatus.textContent = serialPower.connected
+    ? `Ready · grade ${serialPower.targetGrade}% · gear ${serialPower.targetGear} · ${fixedPowerText}`
+    : `Staged · grade ${serialPower.targetGrade}% · gear ${serialPower.targetGear} · ${fixedPowerText}`;
+  const unsupported = !serialPower.supported;
+  const gradeGearDisabled = unsupported || serialPower.fixedPowerEnabled;
+  elements.powerbahnGradeInput.disabled = gradeGearDisabled;
+  elements.powerbahnGearInput.disabled = gradeGearDisabled;
+  elements.applyPowerbahnGradeButton.disabled = gradeGearDisabled;
+  elements.applyPowerbahnGearButton.disabled = gradeGearDisabled;
+  elements.powerbahnFixedPowerEnabledInput.disabled = unsupported;
+  elements.powerbahnFixedPowerInput.disabled = unsupported;
+  elements.applyPowerbahnFixedPowerButton.disabled = unsupported;
+  document.querySelectorAll("[data-grade-step], [data-gear-step]").forEach((button) => {
+    button.disabled = gradeGearDisabled;
+  });
 }
 
 function syncResistanceTarget(event) {
@@ -1122,7 +1137,7 @@ function renderSessions() {
         <td>${escapeHtml(session.date)}</td>
         <td>${session.power} W</td>
         <td>${session.cadence} RPM</td>
-        <td>${session.balance}</td>
+        <td>${session.samples}</td>
       </tr>
     `)
     .join("");

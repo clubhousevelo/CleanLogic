@@ -26,8 +26,8 @@
         <div class="connection-card">
           <span class="status-dot" id="statusDot"></span>
           <div>
-            <strong id="connectionStatus">Replay offline</strong>
-            <span id="sampleCounter">0 samples</span>
+            <strong id="connectionStatus">PowerBahn offline</strong>
+            <span id="sampleCounter">No live frames</span>
           </div>
         </div>
       </aside>
@@ -35,16 +35,8 @@
       <main>
         <header class="topbar">
           <div>
-            <p class="eyebrow">Replay source</p>
-            <h2 id="screenTitle">Live Dashboard</h2>
-          </div>
-          <div class="controls">
-            <button id="playPauseButton" class="primary-button">Start Replay</button>
-            <button id="stepButton" class="icon-button" title="Step one sample">Step</button>
-            <label class="speed-control">
-              <span>Speed</span>
-              <input id="speedSlider" type="range" min="1" max="12" value="4" />
-            </label>
+            <p class="eyebrow">PowerBahn live control</p>
+            <h2 id="screenTitle">Dashboard</h2>
           </div>
         </header>
 
@@ -63,52 +55,136 @@
             <article class="metric">
               <span>Speed</span>
               <strong id="speedValue">0.0 mph</strong>
-              <small id="distanceValue">0.00 mi</small>
+              <small id="speedRawValue">raw --</small>
             </article>
             <article class="metric">
-              <span>Heart</span>
-              <strong id="heartValue">-- bpm</strong>
-              <small id="calorieValue">0 kcal</small>
+              <span>Grade</span>
+              <strong id="gradeValue">--%</strong>
+              <small id="gradeTargetValue">target 0%</small>
+            </article>
+            <article class="metric">
+              <span>Gear</span>
+              <strong id="gearValue">--</strong>
+              <small id="gearTargetValue">target 0</small>
+            </article>
+            <article class="metric">
+              <span>Brake RPM</span>
+              <strong id="brakeRpmValue">--</strong>
+              <small id="brakeRpmStatusValue">status --</small>
             </article>
           </div>
 
+          <section class="hardware-panel">
+            <div class="panel-heading">
+              <div>
+                <h3>PowerBahn Serial</h3>
+                <span id="powerbahnSerialStatus">Ready to connect</span>
+              </div>
+              <div class="controls compact">
+                <button class="primary-button" id="useSerialPowerButton">Connect PowerBahn</button>
+                <button class="secondary-button" id="disconnectSerialPowerButton">Disconnect</button>
+              </div>
+            </div>
+            <div class="serial-port-panel">
+              <label>
+                SerialPort
+                <input id="serialPortInput" name="serialPort" value="COM7" placeholder="COM7 or /dev/cu.usbserial" autocomplete="off">
+              </label>
+              <label>
+                Baud
+                <select id="serialBaudSelect">
+                  <option value="115200">115200</option>
+                  <option value="9600">9600</option>
+                  <option value="19200">19200</option>
+                  <option value="38400">38400</option>
+                  <option value="57600">57600</option>
+                </select>
+              </label>
+              <label>
+                Flow
+                <select id="serialFlowSelect">
+                  <option value="none">None</option>
+                  <option value="hardware">Hardware</option>
+                </select>
+              </label>
+              <label class="serial-checkbox">
+                <input id="serialDtrInput" type="checkbox" checked>
+                DTR
+              </label>
+              <label class="serial-checkbox">
+                <input id="serialRtsInput" type="checkbox" checked>
+                RTS
+              </label>
+              <label>
+                Granted browser port
+                <select id="serialPortSelect">
+                  <option value="">Use browser picker</option>
+                </select>
+              </label>
+              <button class="secondary-button" id="refreshSerialPortsButton" type="button">Refresh Ports</button>
+            </div>
+            <div class="sensor-connect-prompt" id="sensorConnectStatus" role="status" aria-live="polite">Ready to connect PowerBahn serial</div>
+            <div class="serial-debug-panel" id="serialDebugPanel" aria-live="polite">
+              <strong>Serial diagnostic</strong>
+              <span id="serialDebugText">No serial frames received yet.</span>
+            </div>
+          </section>
+
           <div class="dashboard-grid">
-            <section class="chart-panel">
+            <section class="powerbahn-control-panel">
               <div class="panel-heading">
-                <h3>Torque Balance</h3>
-                <span id="balanceValue">50 / 50</span>
+                <div>
+                  <h3>PowerBahn Resistance</h3>
+                  <span id="powerbahnControlStatus">Grade and gear staged</span>
+                </div>
               </div>
-              <canvas id="balanceCanvas" width="520" height="220"></canvas>
+              <div class="grade-gear-controls">
+                <label>
+                  Grade
+                  <input id="powerbahnGradeInput" type="number" min="0" max="25" step="1" value="0" />
+                </label>
+                <div class="stepper-control" aria-label="Adjust grade">
+                  <button class="secondary-button" data-grade-step="1">+</button>
+                  <button class="secondary-button" data-grade-step="-1">-</button>
+                </div>
+                <button class="secondary-button" id="applyPowerbahnGradeButton">Apply Grade</button>
+                <label>
+                  Gear
+                  <input id="powerbahnGearInput" type="number" min="0" max="255" step="1" value="0" />
+                </label>
+                <div class="stepper-control" aria-label="Adjust gear">
+                  <button class="secondary-button" data-gear-step="1">+</button>
+                  <button class="secondary-button" data-gear-step="-1">-</button>
+                </div>
+                <button class="secondary-button" id="applyPowerbahnGearButton">Apply Gear</button>
+              </div>
+              <div class="fixed-power-controls">
+                <label class="fixed-power-toggle">
+                  <input id="powerbahnFixedPowerEnabledInput" type="checkbox" />
+                  Fixed power resistance
+                </label>
+                <label>
+                  Target watts
+                  <input id="powerbahnFixedPowerInput" type="number" min="0" max="1000" step="5" value="150" />
+                </label>
+                <button class="secondary-button" id="applyPowerbahnFixedPowerButton">Apply Fixed Power</button>
+                <span id="powerbahnFixedPowerState">fixed power off</span>
+              </div>
             </section>
             <section class="chart-panel">
               <div class="panel-heading">
-                <h3>Power Trend</h3>
-                <span id="trendStatus">idle</span>
+                <h3>Live Power Trend</h3>
+                <span id="trendStatus">waiting</span>
               </div>
-              <canvas id="trendCanvas" width="760" height="220"></canvas>
-            </section>
-            <section class="chart-panel polar-card">
-              <div class="panel-heading">
-                <h3>Left Polar</h3>
-                <span id="leftPeak">peak 0</span>
-              </div>
-              <canvas id="leftPolarCanvas" width="360" height="360"></canvas>
-            </section>
-            <section class="chart-panel polar-card">
-              <div class="panel-heading">
-                <h3>Right Polar</h3>
-                <span id="rightPeak">peak 0</span>
-              </div>
-              <canvas id="rightPolarCanvas" width="360" height="360"></canvas>
+              <canvas id="trendCanvas" width="760" height="240"></canvas>
             </section>
           </div>
         </section>
 
         <section class="panel" id="sensorsPanel">
           <div class="table-toolbar">
-            <h3>Power & Heart Rate Sensors</h3>
+            <h3>Optional External Sensors</h3>
             <div class="controls compact">
-              <button class="secondary-button" id="useSerialPowerButton">Serial Power</button>
               <button class="secondary-button" id="useBluetoothPowerButton">Search BLE Power</button>
               <button class="secondary-button" id="useAntPowerButton">ANT+ Power</button>
               <button class="secondary-button" id="useSerialHeartButton">Serial HR</button>
@@ -116,54 +192,11 @@
               <button class="secondary-button" id="useAntHeartButton">ANT+ HR</button>
             </div>
           </div>
-          <div class="serial-port-panel">
-            <label>
-              SerialPort
-              <input id="serialPortInput" name="serialPort" value="COM7" placeholder="COM7 or /dev/cu.usbserial" autocomplete="off">
-            </label>
-            <label>
-              Baud
-              <select id="serialBaudSelect">
-                <option value="115200">115200</option>
-                <option value="9600">9600</option>
-                <option value="19200">19200</option>
-                <option value="38400">38400</option>
-                <option value="57600">57600</option>
-              </select>
-            </label>
-            <label>
-              Flow
-              <select id="serialFlowSelect">
-                <option value="none">None</option>
-                <option value="hardware">Hardware</option>
-              </select>
-            </label>
-            <label class="serial-checkbox">
-              <input id="serialDtrInput" type="checkbox" checked>
-              DTR
-            </label>
-            <label class="serial-checkbox">
-              <input id="serialRtsInput" type="checkbox" checked>
-              RTS
-            </label>
-            <label>
-              Granted browser port
-              <select id="serialPortSelect">
-                <option value="">Use browser picker</option>
-              </select>
-            </label>
-            <button class="secondary-button" id="refreshSerialPortsButton" type="button">Refresh Ports</button>
-          </div>
-          <div class="sensor-connect-prompt" id="sensorConnectStatus" role="status" aria-live="polite">Ready to search Bluetooth sensors</div>
-          <div class="serial-debug-panel" id="serialDebugPanel" aria-live="polite">
-            <strong>Serial diagnostic</strong>
-            <span id="serialDebugText">No serial frames received yet.</span>
-          </div>
           <div class="sensor-grid" id="sensorCards"></div>
           <section class="resistance-panel">
             <div class="panel-heading">
               <div>
-                <h3>Resistance Unit</h3>
+                <h3>Bluetooth FTMS Resistance</h3>
                 <span id="resistanceStatus">Disconnected</span>
               </div>
               <div class="controls compact">
@@ -230,13 +263,13 @@
               </div>
             </div>
           </section>
-          <div class="note">Choose one active power source and one active heart-rate source. Bluetooth LE targets standard Cycling Power, Heart Rate, and Fitness Machine services; ANT+ will use a USB ANT stick in the desktop wrapper.</div>
+          <div class="note">PowerBahn serial is controlled from the dashboard. Bluetooth LE and ANT+ remain here for later external power and heart-rate sensor support.</div>
         </section>
 
         <section class="panel" id="sessionsPanel">
           <div class="table-toolbar">
             <h3>Recorded Sessions</h3>
-            <button class="secondary-button" id="recordSessionButton">Save Current Replay</button>
+            <button class="secondary-button" id="recordSessionButton">Save Live Snapshot</button>
           </div>
           <div class="table-wrap">
             <table>
@@ -246,7 +279,7 @@
                   <th>Date</th>
                   <th>Avg Power</th>
                   <th>Avg Cadence</th>
-                  <th>Balance</th>
+                  <th>Samples</th>
                 </tr>
               </thead>
               <tbody id="sessionRows"></tbody>
@@ -286,7 +319,7 @@
             <label>Capture interval<input id="captureTimeInput" type="number" value="3" min="1" /></label>
             <label>Power filter coefficient<input id="filterInput" type="number" value="0.92" min="0" max="1" step="0.01" /></label>
           </div>
-          <div class="note">Hardware source: replay with optional simulated external sensors</div>
+          <div class="note">Hardware source: live PowerBahn serial, with optional external sensors.</div>
         </section>
       </main>
     </div>

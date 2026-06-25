@@ -226,13 +226,15 @@ main {
 
 .metric-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(150px, 1fr));
+  grid-template-columns: repeat(6, minmax(120px, 1fr));
   gap: 14px;
   margin-bottom: 14px;
 }
 
 .metric,
 .chart-panel,
+.hardware-panel,
+.powerbahn-control-panel,
 .table-wrap,
 .form-panel,
 .sensor-card,
@@ -264,6 +266,17 @@ main {
 
 .chart-panel {
   padding: 16px;
+}
+
+.hardware-panel,
+.powerbahn-control-panel {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+
+.hardware-panel {
+  margin-bottom: 14px;
 }
 
 .panel-heading,
@@ -415,6 +428,58 @@ th {
 
 .serial-debug-panel strong {
   color: var(--ink);
+}
+
+.grade-gear-controls {
+  display: grid;
+  grid-template-columns: minmax(110px, 1fr) auto auto minmax(110px, 1fr) auto auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.fixed-power-controls {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.2fr) minmax(110px, 1fr) auto minmax(110px, auto);
+  gap: 10px;
+  align-items: end;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.fixed-power-toggle {
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+  gap: 8px;
+  color: var(--ink-soft);
+}
+
+.fixed-power-toggle input {
+  min-height: auto;
+  width: auto;
+}
+
+.fixed-power-controls span {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.stepper-control {
+  display: grid;
+  grid-template-columns: repeat(2, 42px);
+  gap: 6px;
+}
+
+.stepper-control .secondary-button {
+  min-height: 40px;
+  padding: 0;
+  font-size: 20px;
+  font-weight: 800;
 }
 
 .resistance-panel {
@@ -647,8 +712,18 @@ input {
   .sensor-grid,
   .serial-port-panel,
   .resistance-controls,
+  .grade-gear-controls,
+  .fixed-power-controls,
   .settings-grid {
     grid-template-columns: 1fr;
+  }
+
+  .fixed-power-controls span {
+    justify-content: flex-start;
+  }
+
+  .stepper-control {
+    grid-template-columns: repeat(2, minmax(42px, 1fr));
   }
 
   .resistance-step-buttons {
