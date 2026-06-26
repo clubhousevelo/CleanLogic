@@ -38,6 +38,10 @@
             <p class="eyebrow">PowerBahn live control</p>
             <h2 id="screenTitle">Dashboard</h2>
           </div>
+          <div class="controls compact topbar-actions">
+            <button class="primary-button" id="useSerialPowerButton">Connect PowerBahn</button>
+            <button class="secondary-button" id="disconnectSerialPowerButton">Disconnect</button>
+          </div>
         </header>
 
         <section class="panel active" id="dashboardPanel">
@@ -59,17 +63,8 @@
             </article>
           </div>
 
-          <section class="hardware-panel">
-            <div class="panel-heading">
-              <div>
-                <h3>PowerBahn Serial</h3>
-                <span id="powerbahnSerialStatus" hidden>Ready to connect</span>
-              </div>
-              <div class="controls compact">
-                <button class="primary-button" id="useSerialPowerButton">Connect PowerBahn</button>
-                <button class="secondary-button" id="disconnectSerialPowerButton">Disconnect</button>
-              </div>
-            </div>
+          <section class="hardware-panel" hidden>
+            <span id="powerbahnSerialStatus" hidden>Ready to connect</span>
             <div class="serial-port-panel" hidden>
               <label>
                 SerialPort
