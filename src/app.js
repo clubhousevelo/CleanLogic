@@ -33,6 +33,7 @@ const POWER_ROLLING_WINDOW_MS = 3000;
 const CADENCE_ROLLING_WINDOW_MS = 1000;
 const LIVE_HISTORY_WINDOW_MS = Math.max(POWER_ROLLING_WINDOW_MS, CADENCE_ROLLING_WINDOW_MS);
 const LIVE_GRAPH_SAMPLE_INTERVAL_MS = 3000;
+const CADENCE_ACTIVE_POWER_THRESHOLD_W = 5;
 const SERIAL_PORT_STORAGE_KEY = "purelyfit.serialPort";
 const SERIAL_BAUD_STORAGE_KEY = "purelyfit.serialBaud";
 const SERIAL_FLOW_STORAGE_KEY = "purelyfit.serialFlow";
@@ -350,31 +351,53 @@ function drawTrend(canvas, history) {
   const ctx = prepareCanvas(canvas);
   const { width, height } = getCanvasSize(canvas);
   ctx.clearRect(0, 0, width, height);
-  drawGrid(ctx, width, height);
+  const chart = {
+    left: 48,
+    right: width - 16,
+    top: 14,
+    bottom: height - 24,
+  };
+  const maxPower = getGraphPowerScale(history);
+  drawGrid(ctx, chart, maxPower);
   if (history.length < 2) return;
-  const maxPower = Math.max(120, ...history.map((sample) => sample.power));
   ctx.lineWidth = 3;
   ctx.strokeStyle = "#2d6cdf";
   ctx.beginPath();
   history.forEach((sample, index) => {
-    const x = (index / (history.length - 1)) * (width - 40) + 20;
-    const y = height - 24 - (sample.power / maxPower) * (height - 48);
+    const x = chart.left + (index / (history.length - 1)) * (chart.right - chart.left);
+    const y = chart.bottom - (sample.power / maxPower) * (chart.bottom - chart.top);
     if (index === 0) ctx.moveTo(x, y);
     else ctx.lineTo(x, y);
   });
   ctx.stroke();
 }
 
-function drawGrid(ctx, width, height) {
+function getGraphPowerScale(history) {
+  const maxPower = Math.max(120, ...history.map((sample) => sample.power));
+  return Math.ceil(maxPower / 50) * 50;
+}
+
+function drawGrid(ctx, chart, maxPower) {
   ctx.strokeStyle = "#d9e1e5";
   ctx.lineWidth = 1;
-  for (let i = 1; i < 4; i += 1) {
-    const y = (height / 4) * i;
+  ctx.fillStyle = "#6d7c86";
+  ctx.font = "12px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
+  ctx.textAlign = "right";
+  ctx.textBaseline = "middle";
+
+  for (let i = 0; i <= 4; i += 1) {
+    const ratio = i / 4;
+    const y = chart.bottom - ratio * (chart.bottom - chart.top);
+    const value = Math.round(maxPower * ratio);
     ctx.beginPath();
-    ctx.moveTo(16, y);
-    ctx.lineTo(width - 16, y);
+    ctx.moveTo(chart.left, y);
+    ctx.lineTo(chart.right, y);
     ctx.stroke();
+    ctx.fillText(String(value), chart.left - 8, y);
   }
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
+  ctx.fillText("W", chart.left, chart.top - 2);
 }
 
 function prepareCanvas(canvas) {
@@ -426,7 +449,7 @@ function updatePowerDisplayHistory() {
   state.liveDisplayHistory.push({
     at: now,
     power: powerSensor.rawPower ?? powerSensor.value,
-    cadence: powerSensor.cadence,
+    cadence: getDisplayCadence(powerSensor),
   });
   trimLiveDisplayHistory(now);
 }
@@ -449,6 +472,12 @@ function getRollingAverage(key, windowMs) {
     .filter((value) => value != null && Number.isFinite(value));
   if (!values.length) return null;
   return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function getDisplayCadence(powerSensor) {
+  const rawPower = powerSensor.rawPower ?? powerSensor.value;
+  if (rawPower == null || rawPower <= CADENCE_ACTIVE_POWER_THRESHOLD_W) return 0;
+  return powerSensor.cadence ?? 0;
 }
 
 async function selectSensorSource({ id, type, transport, name }) {
@@ -581,7 +610,9 @@ function updateSerialPowerSensorValue(measurement) {
   sensor.value = measurement.rawPower;
   sensor.rawPower = measurement.rawPower;
   sensor.filteredPower = measurement.filteredPower;
-  sensor.cadence = measurement.cadence;
+  sensor.cadence = measurement.rawPower > CADENCE_ACTIVE_POWER_THRESHOLD_W
+    ? measurement.cadence
+    : 0;
   sensor.speed = measurement.speedMph;
   sensor.speedRaw = measurement.speedRaw;
   sensor.grade = measurement.grade;
@@ -598,7 +629,7 @@ function updateSerialPowerSensorValue(measurement) {
     at: sensor.lastSeen,
     power: measurement.rawPower ?? 0,
     rawPower: measurement.rawPower ?? 0,
-    cadence: measurement.cadence ?? 0,
+    cadence: sensor.cadence ?? 0,
     speed: measurement.speedMph ?? 0,
     grade: measurement.grade ?? 0,
     gear: measurement.gear ?? 0,

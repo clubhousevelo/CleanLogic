@@ -6,8 +6,8 @@ const OPEN_SETTLE_MS = 600;
 const SPEED_MPH_PER_RAW_UNIT = 0.621371 / 100;
 const BRAKE_RPM_TO_CADENCE_DIVISOR = 15.394;
 const GRADE_UPDATE_STATUS = 0x4c;
+const POWER_UPDATE_UNIT = 0x58;
 const EXTRA_CONFIGURATION_COMMAND = 0x1a;
-const EXTRA_CONFIGURATION_AUTO_POWER_PARAMETER = 0x67;
 const POWERBAHN_CAPTURED_ENCRYPTION_SEED = 0xc788;
 const FIXED_POWER_MAX = 1000;
 
@@ -34,6 +34,7 @@ const COMMANDS = {
   speed: 0xa5,
   grade: 0xa8,
   gear: 0xa9,
+  setPower: 0x34,
   power: 0xb4,
   brakeRpm: 0xd0,
   temperature: 0xd2,
@@ -263,7 +264,7 @@ export async function setSerialFixedPower(controller, enabled, watts) {
     return;
   }
 
-  await sendExtraConfigurationUpdate(controller, autoPower);
+  await sendPowerUpdate(controller, autoPower);
   controller.activeFixedPower = autoPower;
   setSerialStatus(controller, fixedPowerEnabled
     ? `Fixed power set to ${targetPower} W`
@@ -401,7 +402,7 @@ async function sendStartupSequence(controller) {
   if (controller.fixedPowerEnabled) {
     const targetPower = clampFixedPower(controller.targetFixedPower);
     controller.startupStep = "fixed power";
-    await sendExtraConfigurationUpdate(controller, targetPower);
+    await sendPowerUpdate(controller, targetPower);
     controller.activeFixedPower = targetPower;
   }
   controller.startupStep = "polling";
@@ -509,22 +510,12 @@ function createPowerbahnConfigurationFrame(controller) {
   );
 }
 
-function createFixedPowerFrame(controller, watts) {
+async function sendPowerUpdate(controller, watts) {
   const targetPower = clampFixedPower(watts);
-  return createEncryptedLongCommandFrame(
-    EXTRA_CONFIGURATION_COMMAND,
-    [
-      EXTRA_CONFIGURATION_AUTO_POWER_PARAMETER,
-      0x00,
-      targetPower & 0xff,
-      (targetPower >> 8) & 0xff,
-    ],
-    getEncryptionSeed(controller),
-  );
-}
-
-async function sendExtraConfigurationUpdate(controller, watts) {
-  await writeFrame(controller, createFixedPowerFrame(controller, watts));
+  await writeFrame(controller, createLongCommandFrame(
+    COMMANDS.setPower,
+    lowHighBytes(targetPower, POWER_UPDATE_UNIT),
+  ));
 }
 
 function createEncryptedLongCommandFrame(command, data, seed) {
