@@ -617,10 +617,13 @@ function updateGraphHistory() {
     return;
   }
 
+  const power = getRollingAverage("power", POWER_ROLLING_WINDOW_MS);
+  if (power == null) return;
+
   state.lastGraphSampleAt = now;
   state.graphHistory.push({
     at: new Date(),
-    power: state.activeSensors[SENSOR_TYPES.power]?.rawPower ?? 0,
+    power,
   });
   if (state.graphHistory.length > 240) state.graphHistory.shift();
 }
