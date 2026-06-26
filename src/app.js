@@ -105,8 +105,6 @@ function bindElements() {
     "gradeTargetValue",
     "gearValue",
     "gearTargetValue",
-    "brakeRpmValue",
-    "brakeRpmStatusValue",
     "trendStatus",
     "trendCanvas",
     "powerbahnSerialStatus",
@@ -311,7 +309,6 @@ function renderAll(force) {
   const displaySpeed = powerSensor?.speed ?? null;
   const displayGrade = powerSensor?.grade ?? null;
   const displayGear = powerSensor?.gear ?? null;
-  const displayBrakeRpm = powerSensor?.brakeRpm ?? null;
   const averagePower = average(state.history, "power");
   const averageCadence = average(state.history, "cadence");
 
@@ -330,10 +327,6 @@ function renderAll(force) {
   elements.gradeTargetValue.textContent = `target ${state.serialPower.targetGrade}%`;
   elements.gearValue.textContent = displayGear == null ? "--" : String(Math.round(displayGear));
   elements.gearTargetValue.textContent = `target ${state.serialPower.targetGear}`;
-  elements.brakeRpmValue.textContent = formatWholeNumber(displayBrakeRpm);
-  elements.brakeRpmStatusValue.textContent = powerSensor?.brakeRpmStatus == null
-    ? "status --"
-    : `status ${powerSensor.brakeRpmStatus}`;
   elements.trendStatus.textContent = state.serialPower.connected ? "live" : "waiting";
 
   drawTrend(elements.trendCanvas, state.history);

@@ -16,6 +16,10 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 body {
   margin: 0;
   min-height: 100vh;
@@ -226,7 +230,7 @@ main {
 
 .metric-grid {
   display: grid;
-  grid-template-columns: repeat(6, minmax(120px, 1fr));
+  grid-template-columns: repeat(3, minmax(160px, 1fr));
   gap: 14px;
   margin-bottom: 14px;
 }
@@ -432,9 +436,43 @@ th {
 
 .grade-gear-controls {
   display: grid;
-  grid-template-columns: minmax(110px, 1fr) auto auto minmax(110px, 1fr) auto auto;
-  gap: 10px;
-  align-items: end;
+  grid-template-columns: repeat(2, minmax(220px, 1fr));
+  gap: 12px;
+  align-items: stretch;
+}
+
+.resistance-adjust-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  min-height: 86px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfdfe;
+}
+
+.resistance-adjust-readout {
+  display: grid;
+  gap: 3px;
+}
+
+.resistance-adjust-readout span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.resistance-adjust-readout strong {
+  color: var(--ink);
+  font-size: 34px;
+  line-height: 1;
+}
+
+.resistance-adjust-readout small {
+  color: var(--muted);
+  font-weight: 800;
 }
 
 .fixed-power-controls {
