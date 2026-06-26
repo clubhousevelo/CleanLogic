@@ -29,7 +29,10 @@ import {
 const RESISTANCE_POWER_MIN = 0;
 const RESISTANCE_POWER_MAX = 1200;
 const RESISTANCE_POWER_STEP = 5;
-const LIVE_ROLLING_WINDOW_MS = 3000;
+const POWER_ROLLING_WINDOW_MS = 3000;
+const CADENCE_ROLLING_WINDOW_MS = 1000;
+const LIVE_HISTORY_WINDOW_MS = Math.max(POWER_ROLLING_WINDOW_MS, CADENCE_ROLLING_WINDOW_MS);
+const LIVE_GRAPH_SAMPLE_INTERVAL_MS = 3000;
 const SERIAL_PORT_STORAGE_KEY = "purelyfit.serialPort";
 const SERIAL_BAUD_STORAGE_KEY = "purelyfit.serialBaud";
 const SERIAL_FLOW_STORAGE_KEY = "purelyfit.serialFlow";
@@ -56,8 +59,10 @@ const BLUETOOTH_SENSOR_PROFILES = {
 const state = {
   tick: 0,
   history: [],
+  graphHistory: [],
   liveDisplayHistory: [],
   activePowerSourceId: null,
+  lastGraphSampleAt: null,
   lastTelemetry: null,
   activeSensors: {
     [SENSOR_TYPES.power]: null,
@@ -304,8 +309,8 @@ function renderAll(force) {
 
   const powerSensor = getBestSensor(SENSOR_TYPES.power);
   const rawPower = powerSensor?.rawPower ?? powerSensor?.value ?? null;
-  const displayPower = getRollingAverage("power");
-  const displayCadence = getRollingAverage("cadence");
+  const displayPower = getRollingAverage("power", POWER_ROLLING_WINDOW_MS);
+  const displayCadence = getRollingAverage("cadence", CADENCE_ROLLING_WINDOW_MS);
   const displaySpeed = powerSensor?.speed ?? null;
   const displayGrade = powerSensor?.grade ?? null;
   const displayGear = powerSensor?.gear ?? null;
@@ -319,8 +324,8 @@ function renderAll(force) {
     : "Waiting for live PowerBahn power";
   elements.cadenceValue.textContent = formatWholeUnit(displayCadence, "RPM");
   elements.cadenceAverage.textContent = displayCadence == null
-    ? "3 sec avg -- RPM"
-    : `3 sec avg · ride avg ${formatWholeNumber(averageCadence)} RPM`;
+    ? "1 sec avg -- RPM"
+    : `1 sec avg · ride avg ${formatWholeNumber(averageCadence)} RPM`;
   elements.speedValue.textContent = displaySpeed == null ? "-- mph" : `${displaySpeed.toFixed(1)} mph`;
   elements.speedRawValue.textContent = powerSensor?.speedRaw == null ? "raw --" : `raw ${Math.round(powerSensor.speedRaw)}`;
   elements.gradeValue.textContent = displayGrade == null ? "--%" : `${displayGrade.toFixed(1)}%`;
@@ -329,7 +334,7 @@ function renderAll(force) {
   elements.gearTargetValue.textContent = `target ${state.serialPower.targetGear}`;
   elements.trendStatus.textContent = state.serialPower.connected ? "live" : "waiting";
 
-  drawTrend(elements.trendCanvas, state.history);
+  drawTrend(elements.trendCanvas, state.graphHistory);
   renderSensors();
   renderSensorConnectStatus();
   renderPowerbahnControl();
@@ -415,6 +420,8 @@ function updatePowerDisplayHistory() {
   if (state.activePowerSourceId !== sourceId) {
     state.activePowerSourceId = sourceId;
     state.liveDisplayHistory = [];
+    state.graphHistory = [];
+    state.lastGraphSampleAt = null;
   }
   state.liveDisplayHistory.push({
     at: now,
@@ -427,15 +434,17 @@ function updatePowerDisplayHistory() {
 function trimLiveDisplayHistory(now = performance.now()) {
   while (
     state.liveDisplayHistory.length > 1 &&
-    now - state.liveDisplayHistory[0].at > LIVE_ROLLING_WINDOW_MS
+    now - state.liveDisplayHistory[0].at > LIVE_HISTORY_WINDOW_MS
   ) {
     state.liveDisplayHistory.shift();
   }
 }
 
-function getRollingAverage(key) {
-  trimLiveDisplayHistory();
+function getRollingAverage(key, windowMs) {
+  const now = performance.now();
+  trimLiveDisplayHistory(now);
   const values = state.liveDisplayHistory
+    .filter((item) => now - item.at <= windowMs)
     .map((item) => item[key])
     .filter((value) => value != null && Number.isFinite(value));
   if (!values.length) return null;
@@ -518,6 +527,8 @@ async function disconnectPowerbahnSerialSensor() {
   }
   state.activePowerSourceId = null;
   state.liveDisplayHistory = [];
+  state.graphHistory = [];
+  state.lastGraphSampleAt = null;
   setSensorConnectStatus(state.serialPower.status);
   renderAll(true);
 }
@@ -596,7 +607,22 @@ function updateSerialPowerSensorValue(measurement) {
   if (state.history.length > 240) state.history.shift();
 
   updatePowerDisplayHistory();
+  updateGraphHistory();
   renderAll(true);
+}
+
+function updateGraphHistory() {
+  const now = performance.now();
+  if (state.lastGraphSampleAt != null && now - state.lastGraphSampleAt < LIVE_GRAPH_SAMPLE_INTERVAL_MS) {
+    return;
+  }
+
+  state.lastGraphSampleAt = now;
+  state.graphHistory.push({
+    at: new Date(),
+    power: state.activeSensors[SENSOR_TYPES.power]?.rawPower ?? 0,
+  });
+  if (state.graphHistory.length > 240) state.graphHistory.shift();
 }
 
 function updateSerialDebug({ rawHex, measurement }) {
