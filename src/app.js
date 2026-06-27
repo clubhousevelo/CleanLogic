@@ -1098,11 +1098,7 @@ function renderPowerbahnControl() {
   const fixedPowerText = serialPower.fixedPowerEnabled
     ? `fixed ${serialPower.targetFixedPower} W`
     : "fixed off";
-  const activeFixedPowerText = serialPower.activeFixedPower == null
-    ? fixedPowerText
-    : serialPower.fixedPowerEnabled
-      ? `active ${serialPower.activeFixedPower} W`
-      : "active off";
+  const activeFixedPowerText = getAppliedFixedPowerText(serialPower);
   elements.gradeTargetValue.textContent = `target ${serialPower.targetGrade}%`;
   elements.gearTargetValue.textContent = `target ${serialPower.targetGear}`;
   elements.powerbahnFixedPowerEnabledInput.checked = Boolean(serialPower.fixedPowerEnabled);
@@ -1124,6 +1120,21 @@ function renderPowerbahnControl() {
   document.querySelectorAll("[data-grade-step], [data-gear-step]").forEach((button) => {
     button.disabled = gradeGearDisabled;
   });
+}
+
+function getAppliedFixedPowerText(serialPower) {
+  if (serialPower.activeFixedPower == null) {
+    return serialPower.fixedPowerEnabled
+      ? `staged ${serialPower.targetFixedPower} W`
+      : "applied off";
+  }
+  if (!serialPower.fixedPowerEnabled || serialPower.activeFixedPower === 0) {
+    return "applied off";
+  }
+  if (serialPower.activeFixedPower !== serialPower.targetFixedPower) {
+    return `applied ${serialPower.activeFixedPower} W · pending ${serialPower.targetFixedPower} W`;
+  }
+  return `applied ${serialPower.activeFixedPower} W`;
 }
 
 function syncResistanceTarget(event) {

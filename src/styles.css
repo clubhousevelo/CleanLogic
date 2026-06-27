@@ -586,6 +586,8 @@ th {
   color: var(--muted);
   font-size: 15px;
   font-weight: 800;
+  text-align: center;
+  white-space: normal;
 }
 
 .fixed-power-controls .secondary-button {
