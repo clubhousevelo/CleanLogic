@@ -446,9 +446,10 @@ th {
 
 .grade-gear-controls {
   display: grid;
-  grid-template-columns: repeat(2, minmax(220px, 1fr));
+  grid-template-columns: repeat(2, minmax(170px, 220px));
   gap: 12px;
   align-items: stretch;
+  justify-content: start;
 }
 
 .resistance-adjust-control {
