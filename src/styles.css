@@ -264,12 +264,17 @@ main {
 
 .dashboard-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   gap: 14px;
+  margin-bottom: 14px;
 }
 
 .chart-panel {
   padding: 16px;
+}
+
+.trend-panel {
+  width: 100%;
 }
 
 .hardware-panel,
@@ -444,10 +449,10 @@ th {
 .resistance-adjust-control {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 12px;
+  gap: 8px;
   align-items: center;
-  min-height: 86px;
-  padding: 14px;
+  min-height: 62px;
+  padding: 8px 10px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fbfdfe;
@@ -455,24 +460,29 @@ th {
 
 .resistance-adjust-readout {
   display: grid;
-  gap: 3px;
+  gap: 2px;
 }
 
 .resistance-adjust-readout span {
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 800;
 }
 
 .resistance-adjust-readout strong {
   color: var(--ink);
-  font-size: 34px;
+  font-size: 24px;
   line-height: 1;
 }
 
 .resistance-adjust-readout small {
   color: var(--muted);
+  font-size: 12px;
   font-weight: 800;
+}
+
+.resistance-adjust-control .stepper-control .secondary-button {
+  min-height: 34px;
 }
 
 .fixed-power-controls {
