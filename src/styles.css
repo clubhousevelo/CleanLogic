@@ -69,7 +69,6 @@ input {
 .brand p,
 .topbar h2,
 .topbar p,
-.dashboard-control-header h3,
 .panel-heading h3,
 .table-toolbar h3,
 .form-panel h3 {
@@ -85,7 +84,6 @@ input {
 .eyebrow,
 .metric span,
 .metric small,
-.dashboard-control-header span,
 .panel-heading span,
 .note {
   color: var(--muted);
@@ -252,7 +250,6 @@ main {
 
 .metric,
 .chart-panel,
-.dashboard-control-header,
 .hardware-panel,
 .powerbahn-control-panel,
 .table-wrap,
@@ -270,7 +267,6 @@ main {
 .metric {
   display: grid;
   gap: 6px;
-  min-height: 132px;
   padding: 18px;
 }
 
@@ -281,7 +277,7 @@ main {
 
 .dashboard-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(360px, 1fr);
+  grid-template-columns: 1fr;
   gap: 14px;
   margin-bottom: 14px;
 }
@@ -292,15 +288,6 @@ main {
 
 .trend-panel {
   width: 100%;
-}
-
-.dashboard-control-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 14px;
-  padding: 14px 16px;
 }
 
 .hardware-panel,
