@@ -43,6 +43,7 @@ const SERIAL_DTR_STORAGE_KEY = "purelyfit.serialDtr";
 const SERIAL_RTS_STORAGE_KEY = "purelyfit.serialRts";
 const POWERBAHN_RELEASE_BAUD_RATE = 115200;
 const POWERBAHN_FIXED_POWER_MAX = 1000;
+const POWERBAHN_GEAR_MAX = 13;
 
 const BLUETOOTH_SENSOR_PROFILES = {
   [SENSOR_TYPES.power]: {
@@ -1070,7 +1071,7 @@ function normalizePowerbahnGrade(value) {
 function normalizePowerbahnGear(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return 0;
-  return Math.min(255, Math.max(0, Math.round(number)));
+  return Math.min(POWERBAHN_GEAR_MAX, Math.max(0, Math.round(number)));
 }
 
 function normalizePowerbahnFixedPower(value) {

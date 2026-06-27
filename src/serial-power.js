@@ -10,6 +10,7 @@ const POWER_UPDATE_UNIT = 0x58;
 const EXTRA_CONFIGURATION_COMMAND = 0x1a;
 const POWERBAHN_CAPTURED_ENCRYPTION_SEED = 0xc788;
 const FIXED_POWER_MAX = 1000;
+const GEAR_MAX = 13;
 
 const ENCRYPTION_KEY = new Uint8Array([
   0x45, 0xfa, 0xb2, 0x4c, 0x4c, 0x52, 0x91, 0x7a, 0x4c, 0x8d, 0xda, 0xb1, 0x4b, 0x45, 0xf3, 0x8e,
@@ -613,7 +614,7 @@ function clampGrade(value) {
 function clampByte(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return 0;
-  return Math.min(255, Math.max(0, Math.round(number)));
+  return Math.min(GEAR_MAX, Math.max(0, Math.round(number)));
 }
 
 function clampFixedPower(value) {
