@@ -23,13 +23,6 @@
           <button class="nav-item" data-panel="customers">Customers</button>
           <button class="nav-item" data-panel="settings">Settings</button>
         </nav>
-        <div class="connection-card">
-          <span class="status-dot" id="statusDot"></span>
-          <div>
-            <strong id="connectionStatus">Powerbahn offline</strong>
-            <span id="sampleCounter">No live frames</span>
-          </div>
-        </div>
       </aside>
 
       <main>
@@ -39,6 +32,13 @@
             <h2 id="screenTitle">Dashboard</h2>
           </div>
           <div class="controls compact topbar-actions">
+            <div class="connection-card topbar-status">
+              <span class="status-dot" id="statusDot"></span>
+              <div>
+                <strong id="connectionStatus">Powerbahn offline</strong>
+                <span id="sampleCounter">No live frames</span>
+              </div>
+            </div>
             <button class="primary-button" id="useSerialPowerButton">Connect Powerbahn</button>
             <button class="secondary-button" id="disconnectSerialPowerButton">Disconnect</button>
           </div>

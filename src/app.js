@@ -33,7 +33,6 @@ const POWER_ROLLING_WINDOW_MS = 3000;
 const CADENCE_ROLLING_WINDOW_MS = 1000;
 const LIVE_HISTORY_WINDOW_MS = Math.max(POWER_ROLLING_WINDOW_MS, CADENCE_ROLLING_WINDOW_MS);
 const LIVE_GRAPH_SAMPLE_INTERVAL_MS = 3000;
-const GRAPH_SMOOTHING_RADIUS = 1;
 const CADENCE_ACTIVE_POWER_THRESHOLD_W = 5;
 const GRAPH_CADENCE_SCALE_RPM = 140;
 const GRAPH_SPEED_SCALE_MPH = 40;
@@ -363,13 +362,12 @@ function drawTrend(canvas, history) {
     bottom: height - 24,
   };
   const maxPower = getGraphPowerScale(history);
-  const smoothedHistory = smoothGraphHistory(history);
   drawGrid(ctx, chart, maxPower);
   drawTrendLegend(ctx, chart, history.at(-1));
-  if (smoothedHistory.length < 2) return;
-  drawTrendSeries(ctx, chart, smoothedHistory, "power", maxPower, "#2d6cdf");
-  drawTrendSeries(ctx, chart, smoothedHistory, "cadence", GRAPH_CADENCE_SCALE_RPM, "#d96c2c");
-  drawTrendSeries(ctx, chart, smoothedHistory, "speed", GRAPH_SPEED_SCALE_MPH, "#178f62");
+  if (history.length < 2) return;
+  drawTrendSeries(ctx, chart, history, "power", maxPower, "#2d6cdf");
+  drawTrendSeries(ctx, chart, history, "cadence", GRAPH_CADENCE_SCALE_RPM, "#d96c2c");
+  drawTrendSeries(ctx, chart, history, "speed", GRAPH_SPEED_SCALE_MPH, "#178f62");
 }
 
 function getGraphPowerScale(history) {
@@ -412,33 +410,6 @@ function drawTrendSeries(ctx, chart, history, key, scale, color) {
     else ctx.lineTo(x, y);
   });
   ctx.stroke();
-}
-
-function smoothGraphHistory(history) {
-  if (history.length < 3) return history;
-  return history.map((sample, index) => ({
-    ...sample,
-    power: getSmoothedGraphValue(history, index, "power"),
-    cadence: getSmoothedGraphValue(history, index, "cadence"),
-    speed: getSmoothedGraphValue(history, index, "speed"),
-  }));
-}
-
-function getSmoothedGraphValue(history, index, key) {
-  let total = 0;
-  let count = 0;
-  for (
-    let sampleIndex = index - GRAPH_SMOOTHING_RADIUS;
-    sampleIndex <= index + GRAPH_SMOOTHING_RADIUS;
-    sampleIndex += 1
-  ) {
-    const value = history[sampleIndex]?.[key];
-    if (value != null && Number.isFinite(value)) {
-      total += value;
-      count += 1;
-    }
-  }
-  return count ? total / count : history[index]?.[key] ?? 0;
 }
 
 function drawTrendLegend(ctx, chart, latest) {
