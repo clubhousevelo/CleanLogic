@@ -33,6 +33,7 @@ const POWER_ROLLING_WINDOW_MS = 3000;
 const CADENCE_ROLLING_WINDOW_MS = 1000;
 const LIVE_HISTORY_WINDOW_MS = Math.max(POWER_ROLLING_WINDOW_MS, CADENCE_ROLLING_WINDOW_MS);
 const LIVE_GRAPH_SAMPLE_INTERVAL_MS = 3000;
+const POWER_GAUGE_SCALE_W = 600;
 const CADENCE_ACTIVE_POWER_THRESHOLD_W = 5;
 const GRAPH_CADENCE_SCALE_RPM = 140;
 const GRAPH_SPEED_SCALE_MPH = 40;
@@ -104,10 +105,13 @@ function bindElements() {
     "connectionStatus",
     "sampleCounter",
     "screenTitle",
+    "powerMetric",
     "powerValue",
     "powerAverage",
+    "cadenceMetric",
     "cadenceValue",
     "cadenceAverage",
+    "speedMetric",
     "speedValue",
     "speedRawValue",
     "gradeValue",
@@ -324,6 +328,9 @@ function renderAll(force) {
   const averageCadence = average(state.history, "cadence");
 
   renderPowerbahnConnectionStatus();
+  updateMetricGauge(elements.powerMetric, displayPower, POWER_GAUGE_SCALE_W);
+  updateMetricGauge(elements.cadenceMetric, displayCadence, GRAPH_CADENCE_SCALE_RPM);
+  updateMetricGauge(elements.speedMetric, displaySpeed, GRAPH_SPEED_SCALE_MPH);
   elements.powerValue.textContent = displayPower == null ? "-- W" : `${Math.round(displayPower)} W`;
   elements.powerAverage.textContent = powerSensor
     ? `${powerSensor.name} · 3 sec avg · raw ${formatWholeNumber(rawPower)} W`
@@ -345,6 +352,16 @@ function renderAll(force) {
   renderSensorConnectStatus();
   renderPowerbahnControl();
   renderResistanceControl();
+}
+
+function updateMetricGauge(element, value, max) {
+  const normalizedValue = Number.isFinite(value) ? value : 0;
+  const ratio = Math.min(1, Math.max(0, normalizedValue / max));
+  const angle = 180 + ratio * 180;
+  const fillAngle = ratio * 180;
+  element.style.setProperty("--gauge-ratio", ratio.toFixed(3));
+  element.style.setProperty("--gauge-angle", `${angle.toFixed(1)}deg`);
+  element.style.setProperty("--gauge-fill-angle", `${fillAngle.toFixed(1)}deg`);
 }
 
 function average(items, key) {

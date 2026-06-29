@@ -46,17 +46,38 @@
 
         <section class="panel active" id="dashboardPanel">
           <div class="metric-grid">
-            <article class="metric">
+            <article class="metric gauge-metric" id="powerMetric">
+              <div class="metric-gauge" aria-hidden="true">
+                <span class="metric-gauge-scale"></span>
+                <span class="metric-gauge-needle"></span>
+                <span class="metric-gauge-hub"></span>
+                <span class="metric-gauge-label metric-gauge-label-min">0</span>
+                <span class="metric-gauge-label metric-gauge-label-max">600</span>
+              </div>
               <span>3s Power</span>
               <strong id="powerValue">0 W</strong>
               <small id="powerAverage">avg 0 W</small>
             </article>
-            <article class="metric">
+            <article class="metric gauge-metric" id="cadenceMetric">
+              <div class="metric-gauge" aria-hidden="true">
+                <span class="metric-gauge-scale"></span>
+                <span class="metric-gauge-needle"></span>
+                <span class="metric-gauge-hub"></span>
+                <span class="metric-gauge-label metric-gauge-label-min">0</span>
+                <span class="metric-gauge-label metric-gauge-label-max">140</span>
+              </div>
               <span>Cadence</span>
               <strong id="cadenceValue">0 RPM</strong>
               <small id="cadenceAverage">avg 0 RPM</small>
             </article>
-            <article class="metric">
+            <article class="metric gauge-metric" id="speedMetric">
+              <div class="metric-gauge" aria-hidden="true">
+                <span class="metric-gauge-scale"></span>
+                <span class="metric-gauge-needle"></span>
+                <span class="metric-gauge-hub"></span>
+                <span class="metric-gauge-label metric-gauge-label-min">0</span>
+                <span class="metric-gauge-label metric-gauge-label-max">40</span>
+              </div>
               <span>Speed</span>
               <strong id="speedValue">0.0 mph</strong>
               <small id="speedRawValue">raw --</small>
