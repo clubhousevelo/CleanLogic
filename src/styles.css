@@ -200,6 +200,7 @@ main {
 }
 
 .topbar {
+  --topbar-control-height: 46px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -223,6 +224,18 @@ main {
 .controls.compact {
   flex-wrap: wrap;
   justify-content: flex-end;
+}
+
+.topbar-actions {
+  align-items: stretch;
+}
+
+.topbar-actions .theme-toggle,
+.topbar-actions .connection-card,
+.topbar-actions .primary-button,
+.topbar-actions .secondary-button {
+  min-height: var(--topbar-control-height);
+  height: var(--topbar-control-height);
 }
 
 .theme-toggle {
@@ -373,7 +386,7 @@ main {
 }
 
 .gauge-metric > strong {
-  margin: 8px 0 6px;
+  margin: 8px 0 2px;
 }
 
 .gauge-metric > small {
