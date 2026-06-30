@@ -2,6 +2,7 @@ const DEFAULT_POWERBAHN_BAUD_RATE = 115200;
 const FRAME_START = 0xf1;
 const FRAME_END = 0xf2;
 const DASHBOARD_POLL_INTERVAL_MS = 300;
+const TORQUE_POLL_INTERVAL_MS = 3000;
 const OPEN_SETTLE_MS = 600;
 const SPEED_MPH_PER_RAW_UNIT = 0.621371 / 100;
 const BRAKE_RPM_TO_CADENCE_DIVISOR = 15.394;
@@ -11,6 +12,11 @@ const EXTRA_CONFIGURATION_COMMAND = 0x1a;
 const POWERBAHN_CAPTURED_ENCRYPTION_SEED = 0xc788;
 const FIXED_POWER_MAX = 1000;
 const GEAR_MAX = 13;
+const TORQUE_PROFILE_SIZE = 360;
+const TORQUE_RANGE_SAMPLE_COUNT = 60;
+const TORQUE_RANGE_IDS = [0x05b4, 0x05f0, 0x062c, 0x0668, 0x06a4, 0x06e0];
+const TORQUE_RANGE_STARTS = new Map(TORQUE_RANGE_IDS.map((id, index) => [id, index * TORQUE_RANGE_SAMPLE_COUNT]));
+const TORQUE_RANGE_COMPLETE_MASK = (1 << TORQUE_RANGE_IDS.length) - 1;
 
 const ENCRYPTION_KEY = new Uint8Array([
   0x45, 0xfa, 0xb2, 0x4c, 0x4c, 0x52, 0x91, 0x7a, 0x4c, 0x8d, 0xda, 0xb1, 0x4b, 0x45, 0xf3, 0x8e,
@@ -38,7 +44,7 @@ const COMMANDS = {
   setPower: 0x34,
   power: 0xb4,
   brakeRpm: 0xd0,
-  temperature: 0xd2,
+  crankAngle: 0xd2,
 };
 
 const DASHBOARD_RESPONSE_FIELDS = [
@@ -47,7 +53,7 @@ const DASHBOARD_RESPONSE_FIELDS = [
   [COMMANDS.gear, 1],
   [COMMANDS.power, 3],
   [COMMANDS.brakeRpm, 3],
-  [COMMANDS.temperature, 2],
+  [COMMANDS.crankAngle, 2],
 ];
 
 const POWERBAHN_WAKE = new Uint8Array([
@@ -64,7 +70,7 @@ const POWERBAHN_DASHBOARD_POLL = new Uint8Array([
   COMMANDS.gear,
   COMMANDS.power,
   COMMANDS.brakeRpm,
-  COMMANDS.temperature,
+  COMMANDS.crankAngle,
   0x12,
   FRAME_END,
 ]);
@@ -142,6 +148,13 @@ export function createSerialPowerController() {
     targetFixedPower: 150,
     fixedPowerEnabled: false,
     activeFixedPower: null,
+    torqueProfile: Array(TORQUE_PROFILE_SIZE).fill(0),
+    torqueRangeMask: 0,
+    torqueFrameCount: 0,
+    torquePollTimer: null,
+    torquePollInFlight: false,
+    torqueRotationCount: 0,
+    lastTorqueAnalysis: null,
     encryptionSeed: null,
     encryptionSeedHex: null,
     pollTimer: null,
@@ -150,6 +163,7 @@ export function createSerialPowerController() {
     onFrame: null,
     onDebug: null,
     onMeasurement: null,
+    onTorque: null,
     onStatus: null,
   };
 }
@@ -213,6 +227,12 @@ export async function connectSerialPower(controller, {
     });
   }, DASHBOARD_POLL_INTERVAL_MS);
   controller.debugTimer = window.setInterval(() => notifyDebug(controller), 500);
+  controller.torquePollTimer = window.setInterval(() => {
+    pollTorqueRanges(controller).catch((error) => {
+      controller.lastError = error.message;
+      setSerialStatus(controller, `Torque poll failed: ${error.message}`);
+    });
+  }, TORQUE_POLL_INTERVAL_MS);
 
   await delay(OPEN_SETTLE_MS);
   await sendStartupSequence(controller);
@@ -288,8 +308,10 @@ export function getSerialPortLabel(port, index) {
 export async function disconnectSerialPower(controller) {
   if (controller.pollTimer) window.clearInterval(controller.pollTimer);
   if (controller.debugTimer) window.clearInterval(controller.debugTimer);
+  if (controller.torquePollTimer) window.clearInterval(controller.torquePollTimer);
   controller.pollTimer = null;
   controller.debugTimer = null;
+  controller.torquePollTimer = null;
 
   const reader = controller.reader;
   const writer = controller.writer;
@@ -409,12 +431,39 @@ async function sendStartupSequence(controller) {
   controller.startupStep = "polling";
 }
 
+async function pollTorqueRanges(controller) {
+  if (!controller.connected || !controller.writer || controller.torquePollInFlight) return;
+
+  controller.torquePollInFlight = true;
+  controller.torqueRangeMask = 0;
+  try {
+    await writeFrame(controller, POWERBAHN_TORQUE_SETUP);
+    await delay(40);
+    for (const frame of POWERBAHN_TORQUE_RANGE_REQUESTS) {
+      await writeFrame(controller, frame);
+      await delay(35);
+    }
+  } finally {
+    controller.torquePollInFlight = false;
+  }
+}
+
 function handleFrame(controller, payload) {
   controller.lastPacketHex = toHex(payload);
   controller.lastFrameAt = new Date();
   controller.frameCount += 1;
   if (applyPowerbahnEncryptionSeed(controller, payload)) {
     controller.onFrame?.({ payload, rawHex: controller.lastPacketHex, measurement: null });
+    notifyDebug(controller);
+    return;
+  }
+  const torqueRange = parsePowerbahnTorquePayload(controller, payload);
+  if (torqueRange) {
+    const torqueAnalysis = updateTorqueProfile(controller, torqueRange);
+    controller.torqueFrameCount += 1;
+    controller.lastTorqueAnalysis = torqueAnalysis;
+    controller.onFrame?.({ payload, rawHex: controller.lastPacketHex, measurement: null, torqueRange });
+    controller.onTorque?.(torqueAnalysis);
     notifyDebug(controller);
     return;
   }
@@ -428,6 +477,145 @@ function handleFrame(controller, payload) {
   controller.lastMeasurement = measurement;
   controller.onFrame?.({ payload, rawHex: controller.lastPacketHex, measurement });
   controller.onMeasurement?.(measurement);
+}
+
+function parsePowerbahnTorquePayload(controller, payload) {
+  if (payload[0] !== 0x01 || payload[1] !== 0x9e || payload.length < 6) return null;
+
+  const encryptedLength = payload[3];
+  if (
+    encryptedLength == null ||
+    encryptedLength < 2 ||
+    payload.length < 4 + encryptedLength
+  ) {
+    return null;
+  }
+
+  const decrypted = decryptPowerbahnPayload(
+    payload.slice(4, 4 + encryptedLength),
+    getEncryptionSeed(controller),
+  );
+  const rangeId = readUInt16LE(decrypted, 0);
+  const startAngle = TORQUE_RANGE_STARTS.get(rangeId);
+  if (startAngle == null) return null;
+
+  const samples = [];
+  for (
+    let index = 2;
+    index + 1 < decrypted.length && samples.length < TORQUE_RANGE_SAMPLE_COUNT;
+    index += 2
+  ) {
+    samples.push(readUInt16LE(decrypted, index));
+  }
+  if (samples.length !== TORQUE_RANGE_SAMPLE_COUNT) return null;
+
+  return {
+    rangeId,
+    rangeIndex: TORQUE_RANGE_IDS.indexOf(rangeId),
+    startAngle,
+    samples,
+    rawHex: toHex(decrypted),
+  };
+}
+
+function updateTorqueProfile(controller, torqueRange) {
+  torqueRange.samples.forEach((value, index) => {
+    const angle = (torqueRange.startAngle + index) % TORQUE_PROFILE_SIZE;
+    controller.torqueProfile[angle] = Math.max(0, value);
+  });
+  controller.torqueRangeMask |= 1 << torqueRange.rangeIndex;
+  const complete = controller.torqueRangeMask === TORQUE_RANGE_COMPLETE_MASK;
+  if (complete) controller.torqueRotationCount += 1;
+  return analyzeTorqueProfile(controller.torqueProfile, {
+    complete,
+    rangeCount: countBits(controller.torqueRangeMask),
+    rotationCount: controller.torqueRotationCount,
+    crankAngle: controller.lastMeasurement?.crankAngle ?? null,
+  });
+}
+
+function analyzeTorqueProfile(profile, { complete, rangeCount, rotationCount, crankAngle }) {
+  const smoothedProfile = circularMovingAverage(profile, 5);
+  const peakTorque = Math.max(...smoothedProfile);
+  const peakAngle = smoothedProfile.indexOf(peakTorque);
+  const averageTorque = averageNumbers(smoothedProfile);
+  let quietestAngle = 0;
+  let quietestPair = Number.POSITIVE_INFINITY;
+
+  for (let angle = 0; angle < 180; angle += 1) {
+    const pair = smoothedProfile[angle] + smoothedProfile[(angle + 180) % TORQUE_PROFILE_SIZE];
+    if (pair < quietestPair) {
+      quietestPair = pair;
+      quietestAngle = angle;
+    }
+  }
+
+  const referenceAngle = Number.isFinite(crankAngle)
+    ? normalizeAngle(crankAngle)
+    : quietestAngle;
+  const leftValues = collectTorqueHalf(smoothedProfile, referenceAngle);
+  const rightValues = collectTorqueHalf(smoothedProfile, referenceAngle + 180);
+  const leftWork = leftValues.reduce((sum, value) => sum + value, 0);
+  const rightWork = rightValues.reduce((sum, value) => sum + value, 0);
+  const totalWork = leftWork + rightWork;
+
+  return {
+    profile: smoothedProfile,
+    rawProfile: [...profile],
+    complete,
+    rangeCount,
+    rotationCount,
+    peakTorque,
+    peakAngle,
+    averageTorque,
+    splitAngle: referenceAngle,
+    quietestAngle,
+    referenceSource: Number.isFinite(crankAngle) ? "crank angle" : "torque minimum",
+    leftAverage: averageNumbers(leftValues),
+    rightAverage: averageNumbers(rightValues),
+    leftShare: totalWork ? (leftWork / totalWork) * 100 : 0,
+    rightShare: totalWork ? (rightWork / totalWork) * 100 : 0,
+    updatedAt: new Date(),
+  };
+}
+
+function collectTorqueHalf(profile, startAngle) {
+  return Array.from({ length: 180 }, (_, index) => (
+    profile[(startAngle + index) % TORQUE_PROFILE_SIZE]
+  ));
+}
+
+function normalizeAngle(value) {
+  const angle = Math.round(Number(value));
+  if (!Number.isFinite(angle)) return 0;
+  return ((angle % TORQUE_PROFILE_SIZE) + TORQUE_PROFILE_SIZE) % TORQUE_PROFILE_SIZE;
+}
+
+function circularMovingAverage(values, radius) {
+  return values.map((_, index) => {
+    let sum = 0;
+    let count = 0;
+    for (let offset = -radius; offset <= radius; offset += 1) {
+      sum += values[(index + offset + values.length) % values.length];
+      count += 1;
+    }
+    return sum / count;
+  });
+}
+
+function averageNumbers(values) {
+  if (!values.length) return 0;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function countBits(value) {
+  let count = 0;
+  let bits = value;
+  while (bits) {
+    count += bits & 1;
+    bits >>= 1;
+  }
+  return count;
 }
 
 export function parsePowerbahnDashboardPayload(payload) {
@@ -451,7 +639,7 @@ export function parsePowerbahnDashboardPayload(payload) {
   const grade = values.get(COMMANDS.grade);
   const power = values.get(COMMANDS.power);
   const brakeRpm = values.get(COMMANDS.brakeRpm);
-  const temperature = values.get(COMMANDS.temperature);
+  const crankAngle = values.get(COMMANDS.crankAngle);
 
   return {
     rawPower: power?.value ?? null,
@@ -465,7 +653,8 @@ export function parsePowerbahnDashboardPayload(payload) {
     brakeRpm: brakeRpm?.value ?? null,
     brakeRpmStatus: brakeRpm?.status ?? null,
     cadence: brakeRpm?.value == null ? null : brakeRpm.value / BRAKE_RPM_TO_CADENCE_DIVISOR,
-    temperatureRaw: temperature?.value ?? null,
+    crankAngleRaw: crankAngle?.value ?? null,
+    crankAngle: crankAngle?.value == null ? null : normalizeAngle(crankAngle.value),
     rawHex: toHex(payload),
   };
 }
@@ -521,6 +710,10 @@ async function sendPowerUpdate(controller, watts) {
 
 function createEncryptedLongCommandFrame(command, data, seed) {
   return createLongCommandFrame(command, encryptPowerbahnPayload(data, seed));
+}
+
+function decryptPowerbahnPayload(data, rawSeed) {
+  return encryptPowerbahnPayload(data, rawSeed);
 }
 
 function encryptPowerbahnPayload(data, rawSeed) {
@@ -669,6 +862,12 @@ function resetSerialStats(controller) {
     activeGrade: null,
     activeGear: null,
     activeFixedPower: null,
+    torqueProfile: Array(TORQUE_PROFILE_SIZE).fill(0),
+    torqueRangeMask: 0,
+    torqueFrameCount: 0,
+    torquePollInFlight: false,
+    torqueRotationCount: 0,
+    lastTorqueAnalysis: null,
     encryptionSeed: null,
     encryptionSeedHex: null,
   });

@@ -70,6 +70,7 @@ const state = {
   activePowerSourceId: null,
   lastGraphSampleAt: null,
   lastTelemetry: null,
+  pedalAnalysis: null,
   activeSensors: {
     [SENSOR_TYPES.power]: null,
     [SENSOR_TYPES.heartRate]: null,
@@ -122,6 +123,12 @@ function bindElements() {
     "gearTargetValue",
     "trendStatus",
     "trendCanvas",
+    "pedalStatus",
+    "pedalCanvas",
+    "pedalBalanceValue",
+    "pedalPeakValue",
+    "pedalDeadSpotValue",
+    "pedalAverageValue",
     "powerbahnSerialStatus",
     "powerbahnGradeInput",
     "applyPowerbahnGradeButton",
@@ -293,6 +300,7 @@ function wireEvents() {
   state.serialPower.onDebug = renderSerialDebug;
   state.serialPower.onFrame = updateSerialDebug;
   state.serialPower.onMeasurement = updateSerialPowerSensorValue;
+  state.serialPower.onTorque = updatePedalAnalysis;
 }
 
 function initializeTheme() {
@@ -369,6 +377,7 @@ function renderAll(force) {
   elements.trendStatus.textContent = state.serialPower.connected ? "live" : "waiting";
 
   drawTrend(elements.trendCanvas, state.graphHistory);
+  renderPedalAnalysis();
   renderSensors();
   renderSensorConnectStatus();
   renderPowerbahnControl();
@@ -474,6 +483,108 @@ function drawTrendLegend(ctx, chart, latest) {
     ctx.fillText(label, x, y);
     x += ctx.measureText(label).width + 16;
   });
+}
+
+function updatePedalAnalysis(analysis) {
+  state.pedalAnalysis = analysis;
+  renderPedalAnalysis();
+}
+
+function renderPedalAnalysis() {
+  const analysis = state.pedalAnalysis;
+  drawPedalDynamics(elements.pedalCanvas, analysis);
+
+  if (!analysis) {
+    elements.pedalStatus.textContent = state.serialPower.connected ? "collecting" : "waiting";
+    elements.pedalBalanceValue.textContent = "-- / --";
+    elements.pedalPeakValue.textContent = "--";
+    elements.pedalDeadSpotValue.textContent = "--";
+    elements.pedalAverageValue.textContent = "--";
+    return;
+  }
+
+  elements.pedalStatus.textContent = analysis.complete
+    ? `${analysis.referenceSource} · rev ${analysis.rotationCount}`
+    : `collecting ${analysis.rangeCount}/6`;
+  elements.pedalBalanceValue.textContent = `${Math.round(analysis.leftShare)} / ${Math.round(analysis.rightShare)}`;
+  elements.pedalPeakValue.textContent = `${Math.round(analysis.peakTorque)} @ ${analysis.peakAngle}°`;
+  elements.pedalDeadSpotValue.textContent = `${analysis.splitAngle}°`;
+  elements.pedalAverageValue.textContent = Math.round(analysis.averageTorque).toString();
+}
+
+function drawPedalDynamics(canvas, analysis) {
+  const ctx = prepareCanvas(canvas);
+  const { width, height } = getCanvasSize(canvas);
+  ctx.clearRect(0, 0, width, height);
+  const centerX = width / 2;
+  const centerY = height / 2;
+  const radius = Math.max(20, Math.min(width, height) / 2 - 28);
+
+  drawPolarGrid(ctx, centerX, centerY, radius);
+  if (!analysis?.profile?.length) {
+    ctx.fillStyle = getCssColor("--muted");
+    ctx.font = "13px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("Collecting torque profile", centerX, centerY);
+    return;
+  }
+
+  const scale = Math.max(1, analysis.peakTorque);
+  drawTorqueHalf(ctx, analysis.profile, analysis.splitAngle, 180, centerX, centerY, radius, scale, "rgba(45, 108, 223, 0.72)");
+  drawTorqueHalf(ctx, analysis.profile, analysis.splitAngle + 180, 180, centerX, centerY, radius, scale, "rgba(217, 108, 44, 0.72)");
+  drawReferenceLine(ctx, centerX, centerY, radius, analysis.splitAngle, "#2d6cdf");
+  drawReferenceLine(ctx, centerX, centerY, radius, analysis.splitAngle + 180, "#d96c2c");
+  drawReferenceLine(ctx, centerX, centerY, radius * 0.92, analysis.peakAngle, "#178f62");
+}
+
+function drawPolarGrid(ctx, centerX, centerY, radius) {
+  ctx.strokeStyle = getCssColor("--line");
+  ctx.lineWidth = 1;
+  [0.33, 0.66, 1].forEach((ratio) => {
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, radius * ratio, 0, Math.PI * 2);
+    ctx.stroke();
+  });
+  [0, 90, 180, 270].forEach((angle) => {
+    const point = polarPoint(centerX, centerY, radius, angle);
+    ctx.beginPath();
+    ctx.moveTo(centerX, centerY);
+    ctx.lineTo(point.x, point.y);
+    ctx.stroke();
+  });
+}
+
+function drawTorqueHalf(ctx, profile, startAngle, length, centerX, centerY, radius, scale, color) {
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(centerX, centerY);
+  for (let offset = 0; offset <= length; offset += 1) {
+    const angle = (startAngle + offset + 360) % 360;
+    const value = profile[angle] ?? 0;
+    const point = polarPoint(centerX, centerY, (value / scale) * radius, angle);
+    ctx.lineTo(point.x, point.y);
+  }
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawReferenceLine(ctx, centerX, centerY, radius, angle, color) {
+  const point = polarPoint(centerX, centerY, radius, angle);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(centerX, centerY);
+  ctx.lineTo(point.x, point.y);
+  ctx.stroke();
+}
+
+function polarPoint(centerX, centerY, radius, angle) {
+  const radians = ((angle - 90) / 180) * Math.PI;
+  return {
+    x: centerX + Math.cos(radians) * radius,
+    y: centerY + Math.sin(radians) * radius,
+  };
 }
 
 function prepareCanvas(canvas) {
@@ -590,6 +701,7 @@ async function connectPowerbahnSerialSensor() {
   sensor.value = null;
   state.activeSensors[SENSOR_TYPES.power] = sensor;
   state.activePowerSourceId = null;
+  state.pedalAnalysis = null;
   renderAll(true);
 
   const requestedPortName = elements.serialPortInput.value.trim();
@@ -634,6 +746,7 @@ async function disconnectPowerbahnSerialSensor() {
   state.liveDisplayHistory = [];
   state.graphHistory = [];
   state.lastGraphSampleAt = null;
+  state.pedalAnalysis = null;
   setSensorConnectStatus(state.serialPower.status);
   renderAll(true);
 }
@@ -697,6 +810,8 @@ function updateSerialPowerSensorValue(measurement) {
   sensor.gear = measurement.gear;
   sensor.brakeRpm = measurement.brakeRpm;
   sensor.brakeRpmStatus = measurement.brakeRpmStatus;
+  sensor.crankAngle = measurement.crankAngle;
+  sensor.crankAngleRaw = measurement.crankAngleRaw;
   sensor.lastSeen = new Date();
   sensor.rawPacket = measurement.rawHex;
   state.lastTelemetry = measurement;
@@ -710,6 +825,7 @@ function updateSerialPowerSensorValue(measurement) {
     grade: measurement.grade ?? 0,
     gear: measurement.gear ?? 0,
     brakeRpm: measurement.brakeRpm ?? 0,
+    crankAngle: measurement.crankAngle ?? 0,
   });
   if (state.history.length > 240) state.history.shift();
 
@@ -894,6 +1010,7 @@ function renderSerialDebug() {
         `cadence=${formatWholeNumber(measurement.cadence)}`,
         `grade=${measurement.grade == null ? "--" : measurement.grade.toFixed(1)}`,
         `gear=${formatWholeNumber(measurement.gear)}`,
+        `crank=${formatWholeNumber(measurement.crankAngle)}`,
       ].join(" ")
     : "no parsed telemetry yet";
   const rawText = serialPower.lastPacketHex
@@ -908,6 +1025,7 @@ function renderSerialDebug() {
     serialPower.portInfo ? `port ${serialPower.portInfo}` : "port unknown",
     serialPower.signals ?? "signals not set",
     serialPower.encryptionSeedHex ? `seed ${serialPower.encryptionSeedHex}` : "seed pending",
+    `torque ${serialPower.torqueFrameCount ?? 0} frames`,
     serialPower.fixedPowerEnabled ? `fixed ${serialPower.targetFixedPower} W` : "fixed off",
     serialPower.startupStep ? `startup ${serialPower.startupStep}` : "startup pending",
     `last ${lastFrameAt}`,
@@ -976,6 +1094,7 @@ function renderSensors() {
           ${sensor.speed == null ? "" : `<span>${sensor.speed.toFixed(1)} mph</span>`}
           ${sensor.grade == null ? "" : `<span>${sensor.grade.toFixed(1)}% grade</span>`}
           ${sensor.gear == null ? "" : `<span>gear ${Math.round(sensor.gear)}</span>`}
+          ${sensor.crankAngle == null ? "" : `<span>${Math.round(sensor.crankAngle)}° crank</span>`}
           ${sensor.balance == null ? "" : `<span>${sensor.balance}% L</span>`}
           ${sensor.battery == null ? "" : `<span>${sensor.battery}% battery</span>`}
         </div>
