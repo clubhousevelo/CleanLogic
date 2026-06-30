@@ -123,7 +123,6 @@ function bindElements() {
     "trendStatus",
     "trendCanvas",
     "powerbahnSerialStatus",
-    "powerbahnControlStatus",
     "powerbahnGradeInput",
     "applyPowerbahnGradeButton",
     "powerbahnGearInput",
@@ -1139,18 +1138,12 @@ function renderPowerbahnConnectionStatus() {
 
 function renderPowerbahnControl() {
   const { serialPower } = state;
-  const fixedPowerText = serialPower.fixedPowerEnabled
-    ? `fixed ${serialPower.targetFixedPower} W`
-    : "fixed off";
   const activeFixedPowerText = getAppliedFixedPowerText(serialPower);
   elements.gradeTargetValue.textContent = `target ${serialPower.targetGrade}%`;
   elements.gearTargetValue.textContent = `target ${serialPower.targetGear}`;
   elements.powerbahnFixedPowerEnabledInput.checked = Boolean(serialPower.fixedPowerEnabled);
   elements.powerbahnFixedPowerInput.value = serialPower.targetFixedPower;
   elements.powerbahnFixedPowerState.textContent = activeFixedPowerText;
-  elements.powerbahnControlStatus.textContent = serialPower.connected
-    ? `Ready · grade ${serialPower.targetGrade}% · gear ${serialPower.targetGear} · ${fixedPowerText}`
-    : `Staged · grade ${serialPower.targetGrade}% · gear ${serialPower.targetGear} · ${fixedPowerText}`;
   const unsupported = !serialPower.supported;
   const gradeGearDisabled = unsupported || serialPower.fixedPowerEnabled;
   elements.powerbahnGradeInput.disabled = gradeGearDisabled;
