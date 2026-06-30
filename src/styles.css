@@ -241,22 +241,56 @@ main {
 .theme-toggle {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   min-height: 42px;
-  gap: 8px;
-  padding: 0 12px;
+  width: var(--topbar-control-height);
+  padding: 0;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel);
   color: var(--ink-soft);
-  font-size: 13px;
-  font-weight: 800;
   cursor: pointer;
 }
 
 .theme-toggle input {
-  min-height: auto;
-  width: auto;
-  accent-color: var(--accent);
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.theme-toggle-icon {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  color: var(--ink-soft);
+}
+
+.theme-toggle-icon svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.theme-toggle-icon-moon {
+  display: none;
+}
+
+.theme-toggle input:checked ~ .theme-toggle-icon-sun {
+  display: none;
+}
+
+.theme-toggle input:checked ~ .theme-toggle-icon-moon {
+  display: grid;
+}
+
+.theme-toggle:focus-within {
+  outline: 2px solid color-mix(in srgb, var(--accent) 46%, transparent);
+  outline-offset: 2px;
 }
 
 .primary-button {
