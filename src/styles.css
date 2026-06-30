@@ -330,27 +330,9 @@ main {
   min-height: clamp(124px, 18vh, 168px);
   align-items: center;
   justify-items: center;
-  padding: clamp(12px, 1.8vh, 18px) clamp(12px, 1.8vw, 18px) clamp(12px, 1.8vh, 18px) 38px;
-  border-top-color: color-mix(in srgb, var(--metric-label-color) 78%, var(--border));
-  border-left-color: color-mix(in srgb, var(--metric-label-color) 78%, var(--border));
-  border-top-width: 5px;
-  border-left-width: 5px;
+  padding: clamp(12px, 1.8vh, 18px) clamp(12px, 1.8vw, 18px) clamp(12px, 1.8vh, 18px) 42px;
   text-align: center;
   overflow: hidden;
-}
-
-.metric::before {
-  content: "";
-  position: absolute;
-  top: -5px;
-  left: -5px;
-  z-index: 2;
-  width: clamp(86px, 18%, 128px);
-  height: clamp(78px, 52%, 112px);
-  border-top: 5px solid var(--metric-label-color);
-  border-left: 5px solid var(--metric-label-color);
-  border-radius: 8px 0 0 0;
-  pointer-events: none;
 }
 
 #powerMetric {
@@ -392,17 +374,23 @@ main {
 
 .gauge-metric > .metric-title {
   position: absolute;
-  left: 8px;
-  top: 50%;
+  left: 0;
+  top: 0;
+  bottom: 0;
   z-index: 2;
-  color: var(--metric-label-color);
+  display: grid;
+  place-items: center;
+  width: 32px;
+  border-radius: 0;
+  background: var(--metric-label-color);
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.2);
+  color: #ffffff;
   font-size: 12px;
   font-weight: 900;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   writing-mode: vertical-rl;
-  transform: translateY(-50%) rotate(180deg);
-  text-shadow: 0 1px 0 var(--panel), 0 3px 12px var(--panel);
+  transform: rotate(180deg);
 }
 
 .metric-gauge-scale {
@@ -1087,7 +1075,7 @@ input {
 
   .metric {
     min-height: 112px;
-    padding: 8px 12px 10px 36px;
+    padding: 8px 12px 10px 40px;
   }
 
   .metric strong {
