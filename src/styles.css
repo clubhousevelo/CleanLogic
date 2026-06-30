@@ -322,6 +322,7 @@ main {
   --gauge-ratio: 0;
   --gauge-angle: 180deg;
   --gauge-fill-angle: 0deg;
+  --metric-label-color: var(--accent-3);
   position: relative;
   display: grid;
   grid-template-rows: minmax(42px, 1fr) auto auto auto;
@@ -329,9 +330,21 @@ main {
   min-height: clamp(124px, 18vh, 168px);
   align-items: center;
   justify-items: center;
-  padding: clamp(12px, 1.8vh, 18px) clamp(12px, 1.8vw, 18px);
+  padding: clamp(12px, 1.8vh, 18px) clamp(12px, 1.8vw, 18px) clamp(12px, 1.8vh, 18px) 42px;
   text-align: center;
   overflow: hidden;
+}
+
+#powerMetric {
+  --metric-label-color: #2d6cdf;
+}
+
+#cadenceMetric {
+  --metric-label-color: #d96c2c;
+}
+
+#speedMetric {
+  --metric-label-color: #178f62;
 }
 
 .metric strong {
@@ -357,6 +370,26 @@ main {
 .gauge-metric > small {
   position: relative;
   z-index: 1;
+}
+
+.gauge-metric > .metric-title {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  border-radius: 8px 0 0 8px;
+  background: var(--metric-label-color);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
 }
 
 .metric-gauge-scale {
@@ -1041,7 +1074,7 @@ input {
 
   .metric {
     min-height: 112px;
-    padding: 8px 12px 10px;
+    padding: 8px 12px 10px 40px;
   }
 
   .metric strong {
