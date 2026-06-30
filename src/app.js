@@ -42,6 +42,7 @@ const SERIAL_BAUD_STORAGE_KEY = "purelyfit.serialBaud";
 const SERIAL_FLOW_STORAGE_KEY = "purelyfit.serialFlow";
 const SERIAL_DTR_STORAGE_KEY = "purelyfit.serialDtr";
 const SERIAL_RTS_STORAGE_KEY = "purelyfit.serialRts";
+const THEME_STORAGE_KEY = "purelyfit.theme";
 const POWERBAHN_RELEASE_BAUD_RATE = 115200;
 const POWERBAHN_FIXED_POWER_MAX = 1000;
 const POWERBAHN_GEAR_MAX = 13;
@@ -105,6 +106,7 @@ function bindElements() {
     "connectionStatus",
     "sampleCounter",
     "screenTitle",
+    "darkModeToggle",
     "powerMetric",
     "powerValue",
     "powerAverage",
@@ -168,6 +170,7 @@ function bindElements() {
 
 async function boot() {
   bindElements();
+  initializeTheme();
   wireEvents();
   initializeSerialPortControls();
   await refreshGrantedSerialPorts();
@@ -176,6 +179,9 @@ async function boot() {
 }
 
 function wireEvents() {
+  elements.darkModeToggle.addEventListener("change", () => {
+    setTheme(elements.darkModeToggle.checked ? "dark" : "light");
+  });
   elements.recordSessionButton.addEventListener("click", () => recordSession("Live Snapshot"));
   elements.customerForm.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -290,6 +296,22 @@ function wireEvents() {
   state.serialPower.onMeasurement = updateSerialPowerSensorValue;
 }
 
+function initializeTheme() {
+  const storedTheme = localStorage.getItem(THEME_STORAGE_KEY);
+  const prefersDark = window.matchMedia?.("(prefers-color-scheme: dark)").matches;
+  setTheme(storedTheme ?? (prefersDark ? "dark" : "light"), { persist: false });
+}
+
+function setTheme(theme, options = {}) {
+  const nextTheme = theme === "dark" ? "dark" : "light";
+  document.documentElement.dataset.theme = nextTheme;
+  elements.darkModeToggle.checked = nextTheme === "dark";
+  if (options.persist !== false) {
+    localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
+  }
+  renderAll(true);
+}
+
 function initializeSerialPortControls() {
   elements.serialPortInput.value = state.serialPortName;
   elements.serialBaudSelect.value = String(state.serialBaudRate);
@@ -394,9 +416,9 @@ function getGraphPowerScale(history) {
 }
 
 function drawGrid(ctx, chart, maxPower) {
-  ctx.strokeStyle = "#d9e1e5";
+  ctx.strokeStyle = getCssColor("--line");
   ctx.lineWidth = 1;
-  ctx.fillStyle = "#6d7c86";
+  ctx.fillStyle = getCssColor("--muted");
   ctx.font = "12px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
   ctx.textAlign = "right";
   ctx.textBaseline = "middle";
@@ -414,6 +436,10 @@ function drawGrid(ctx, chart, maxPower) {
   ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";
   ctx.fillText("W", chart.left, chart.top - 2);
+}
+
+function getCssColor(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
 
 function drawTrendSeries(ctx, chart, history, key, scale, color) {
