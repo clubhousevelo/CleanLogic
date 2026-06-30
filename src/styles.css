@@ -536,14 +536,26 @@ main {
 #dashboardPanel.panel.active {
   flex: 1 1 auto;
   display: grid;
-  grid-template-rows: auto auto minmax(160px, 1fr) minmax(240px, 1fr);
+  grid-template-rows: auto auto minmax(300px, 1fr);
   gap: clamp(8px, 1.4vh, 14px);
   min-height: 0;
 }
 
 #dashboardPanel .metric-grid,
-#dashboardPanel .dashboard-grid {
+#dashboardPanel .dashboard-grid,
+#dashboardPanel .live-analysis-grid {
   margin-bottom: 0;
+}
+
+.live-analysis-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(8px, 1.4vh, 14px);
+  min-height: 0;
+}
+
+.live-analysis-grid > .chart-panel {
+  min-width: 0;
 }
 
 .chart-panel {
@@ -576,15 +588,16 @@ main {
 
 .pedal-dynamics-layout {
   display: grid;
-  grid-template-columns: minmax(280px, 1fr) minmax(220px, 320px);
-  gap: 14px;
+  flex: 1 1 auto;
+  grid-template-rows: minmax(180px, 1fr) auto;
+  gap: 12px;
   min-height: 0;
 }
 
 .pedal-panel canvas {
   width: 100%;
   height: 100%;
-  min-height: 220px;
+  min-height: 180px;
   background: color-mix(in srgb, var(--panel), var(--bg) 32%);
 }
 
@@ -1162,6 +1175,7 @@ input {
   .sensor-grid,
   .serial-port-panel,
   .resistance-controls,
+  .live-analysis-grid,
   .pedal-dynamics-layout,
   .powerbahn-resistance-grid,
   .grade-gear-controls,
@@ -1245,7 +1259,8 @@ input {
   }
 
   .pedal-dynamics-layout {
-    grid-template-columns: minmax(220px, 1fr) minmax(180px, 260px);
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(140px, 1fr) auto;
   }
 
   .pedal-panel canvas {

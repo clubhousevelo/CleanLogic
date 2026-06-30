@@ -199,40 +199,42 @@
               </div>
             </section>
           </div>
-          <section class="chart-panel trend-panel">
-            <div class="panel-heading">
-              <h3>Live Power Trend</h3>
-              <span id="trendStatus">waiting</span>
-            </div>
-            <canvas id="trendCanvas" width="1200" height="240"></canvas>
-          </section>
-          <section class="chart-panel pedal-panel">
-            <div class="panel-heading">
-              <h3>Pedaling Dynamics</h3>
-              <span id="pedalStatus">waiting</span>
-            </div>
-            <div class="pedal-dynamics-layout">
-              <canvas id="pedalCanvas" width="520" height="360"></canvas>
-              <div class="pedal-stat-grid">
-                <article class="pedal-stat">
-                  <span>L/R estimate</span>
-                  <strong id="pedalBalanceValue">-- / --</strong>
-                </article>
-                <article class="pedal-stat">
-                  <span>Peak</span>
-                  <strong id="pedalPeakValue">--</strong>
-                </article>
-                <article class="pedal-stat">
-                  <span>Quiet angle</span>
-                  <strong id="pedalDeadSpotValue">--</strong>
-                </article>
-                <article class="pedal-stat">
-                  <span>Avg torque</span>
-                  <strong id="pedalAverageValue">--</strong>
-                </article>
+          <div class="live-analysis-grid">
+            <section class="chart-panel trend-panel">
+              <div class="panel-heading">
+                <h3>Live Power Trend</h3>
+                <span id="trendStatus">waiting</span>
               </div>
-            </div>
-          </section>
+              <canvas id="trendCanvas" width="1200" height="240"></canvas>
+            </section>
+            <section class="chart-panel pedal-panel">
+              <div class="panel-heading">
+                <h3>Pedaling Dynamics</h3>
+                <span id="pedalStatus">waiting</span>
+              </div>
+              <div class="pedal-dynamics-layout">
+                <canvas id="pedalCanvas" width="520" height="360"></canvas>
+                <div class="pedal-stat-grid">
+                  <article class="pedal-stat">
+                    <span>L/R estimate</span>
+                    <strong id="pedalBalanceValue">-- / --</strong>
+                  </article>
+                  <article class="pedal-stat">
+                    <span>Peak</span>
+                    <strong id="pedalPeakValue">--</strong>
+                  </article>
+                  <article class="pedal-stat">
+                    <span>Quiet angle</span>
+                    <strong id="pedalDeadSpotValue">--</strong>
+                  </article>
+                  <article class="pedal-stat">
+                    <span>Avg torque</span>
+                    <strong id="pedalAverageValue">--</strong>
+                  </article>
+                </div>
+              </div>
+            </section>
+          </div>
         </section>
 
         <section class="panel" id="sensorsPanel">

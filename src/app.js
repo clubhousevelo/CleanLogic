@@ -486,7 +486,7 @@ function drawTrendLegend(ctx, chart, latest) {
 }
 
 function updatePedalAnalysis(analysis) {
-  if (isPedalAnalysisFrozen()) {
+  if (state.pedalAnalysis && isPedalAnalysisFrozen()) {
     renderPedalAnalysis();
     return;
   }
@@ -496,7 +496,7 @@ function updatePedalAnalysis(analysis) {
 
 function renderPedalAnalysis() {
   const analysis = state.pedalAnalysis;
-  const frozen = isPedalAnalysisFrozen();
+  const frozen = Boolean(analysis && isPedalAnalysisFrozen());
   drawPedalDynamics(elements.pedalCanvas, analysis);
 
   if (!analysis) {
@@ -530,15 +530,16 @@ function isPedalAnalysisFrozen() {
 
 function getPedalAnalysisCadence() {
   const sensor = state.activeSensors[SENSOR_TYPES.power];
-  if (sensor?.id === "powerbahn-usb-serial" && Number.isFinite(sensor.cadence)) {
-    return sensor.cadence;
+  if (sensor?.id === "powerbahn-usb-serial" && Number.isFinite(sensor.rawCadence)) {
+    return sensor.rawCadence;
   }
 
   const measurement = state.lastTelemetry;
-  if (!measurement) return null;
-  const rawPower = measurement.rawPower ?? measurement.power;
-  if (rawPower != null && rawPower <= CADENCE_ACTIVE_POWER_THRESHOLD_W) return 0;
-  return Number.isFinite(measurement.cadence) ? measurement.cadence : null;
+  if (Number.isFinite(measurement?.cadence)) return measurement.cadence;
+  if (sensor?.id === "powerbahn-usb-serial" && Number.isFinite(sensor.cadence)) {
+    return sensor.cadence;
+  }
+  return null;
 }
 
 function drawPedalDynamics(canvas, analysis) {
@@ -836,6 +837,7 @@ function updateSerialPowerSensorValue(measurement) {
   sensor.value = measurement.rawPower;
   sensor.rawPower = measurement.rawPower;
   sensor.filteredPower = measurement.filteredPower;
+  sensor.rawCadence = measurement.cadence;
   sensor.cadence = measurement.rawPower > CADENCE_ACTIVE_POWER_THRESHOLD_W
     ? measurement.cadence
     : 0;
