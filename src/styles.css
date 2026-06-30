@@ -325,12 +325,12 @@ main {
   --metric-label-color: var(--accent-3);
   position: relative;
   display: grid;
-  grid-template-rows: minmax(42px, 1fr) auto auto auto;
-  gap: 2px;
-  min-height: clamp(124px, 18vh, 168px);
+  grid-template-rows: minmax(42px, 1fr) auto;
+  gap: 0;
+  min-height: clamp(112px, 16vh, 152px);
   align-items: center;
   justify-items: center;
-  padding: clamp(12px, 1.8vh, 18px) clamp(12px, 1.8vw, 18px) clamp(12px, 1.8vh, 18px) 42px;
+  padding: clamp(10px, 1.4vh, 14px) clamp(12px, 1.8vw, 18px) clamp(6px, 0.9vh, 10px) 42px;
   text-align: center;
   overflow: hidden;
 }
@@ -370,6 +370,21 @@ main {
 .gauge-metric > small {
   position: relative;
   z-index: 1;
+}
+
+.gauge-metric > strong {
+  transform: translateY(7px);
+}
+
+.gauge-metric > small {
+  position: absolute;
+  top: clamp(10px, 1.4vh, 14px);
+  right: clamp(12px, 1.8vw, 18px);
+  max-width: calc(100% - 74px);
+  color: var(--muted);
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: right;
 }
 
 .gauge-metric > .metric-title {
@@ -1074,8 +1089,8 @@ input {
   }
 
   .metric {
-    min-height: 112px;
-    padding: 8px 12px 10px 40px;
+    min-height: 104px;
+    padding: 8px 12px 6px 40px;
   }
 
   .metric strong {
