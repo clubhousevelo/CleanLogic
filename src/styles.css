@@ -828,7 +828,7 @@ th {
   padding: 8px 10px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: var(--panel-soft);
+  background: var(--panel);
 }
 
 .resistance-adjust-readout {
@@ -869,7 +869,7 @@ th {
   padding: 10px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: var(--panel-soft);
+  background: var(--panel);
 }
 
 .fixed-power-toggle {
