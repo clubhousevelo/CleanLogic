@@ -38,13 +38,22 @@ const POWER_GAUGE_SCALE_W = 600;
 const CADENCE_ACTIVE_POWER_THRESHOLD_W = 5;
 const GRAPH_CADENCE_SCALE_RPM = 140;
 const GRAPH_SPEED_SCALE_MPH = 40;
-const SERIAL_PORT_STORAGE_KEY = "purelyfit.serialPort";
-const SERIAL_BAUD_STORAGE_KEY = "purelyfit.serialBaud";
-const SERIAL_FLOW_STORAGE_KEY = "purelyfit.serialFlow";
-const SERIAL_DTR_STORAGE_KEY = "purelyfit.serialDtr";
-const SERIAL_RTS_STORAGE_KEY = "purelyfit.serialRts";
-const THEME_STORAGE_KEY = "purelyfit.theme";
-const TRIALS_STORAGE_KEY = "purelyfit.trials";
+const LEGACY_STORAGE_KEYS = {
+  serialPort: "purelyfit.serialPort",
+  serialBaud: "purelyfit.serialBaud",
+  serialFlow: "purelyfit.serialFlow",
+  serialDtr: "purelyfit.serialDtr",
+  serialRts: "purelyfit.serialRts",
+  theme: "purelyfit.theme",
+  trials: "purelyfit.trials",
+};
+const SERIAL_PORT_STORAGE_KEY = "cleanlogic.serialPort";
+const SERIAL_BAUD_STORAGE_KEY = "cleanlogic.serialBaud";
+const SERIAL_FLOW_STORAGE_KEY = "cleanlogic.serialFlow";
+const SERIAL_DTR_STORAGE_KEY = "cleanlogic.serialDtr";
+const SERIAL_RTS_STORAGE_KEY = "cleanlogic.serialRts";
+const THEME_STORAGE_KEY = "cleanlogic.theme";
+const TRIALS_STORAGE_KEY = "cleanlogic.trials";
 const POWERBAHN_RELEASE_BAUD_RATE = 115200;
 const POWERBAHN_FIXED_POWER_MAX = 1000;
 const POWERBAHN_GEAR_MAX = 13;
@@ -66,6 +75,19 @@ const BLUETOOTH_SENSOR_PROFILES = {
   },
 };
 
+function getStoredValue(storageKey, legacyStorageKey) {
+  const value = localStorage.getItem(storageKey);
+  if (value !== null || !legacyStorageKey) {
+    return value;
+  }
+
+  const legacyValue = localStorage.getItem(legacyStorageKey);
+  if (legacyValue !== null) {
+    localStorage.setItem(storageKey, legacyValue);
+  }
+  return legacyValue;
+}
+
 const state = {
   tick: 0,
   history: [],
@@ -85,11 +107,12 @@ const state = {
   },
   serialPower: createSerialPowerController(),
   grantedSerialPorts: [],
-  serialPortName: localStorage.getItem(SERIAL_PORT_STORAGE_KEY) || "COM7",
-  serialBaudRate: Number(localStorage.getItem(SERIAL_BAUD_STORAGE_KEY)) || POWERBAHN_RELEASE_BAUD_RATE,
-  serialFlowControl: localStorage.getItem(SERIAL_FLOW_STORAGE_KEY) || "none",
-  serialDtr: localStorage.getItem(SERIAL_DTR_STORAGE_KEY) !== "false",
-  serialRts: localStorage.getItem(SERIAL_RTS_STORAGE_KEY) !== "false",
+  serialPortName: getStoredValue(SERIAL_PORT_STORAGE_KEY, LEGACY_STORAGE_KEYS.serialPort) || "COM7",
+  serialBaudRate:
+    Number(getStoredValue(SERIAL_BAUD_STORAGE_KEY, LEGACY_STORAGE_KEYS.serialBaud)) || POWERBAHN_RELEASE_BAUD_RATE,
+  serialFlowControl: getStoredValue(SERIAL_FLOW_STORAGE_KEY, LEGACY_STORAGE_KEYS.serialFlow) || "none",
+  serialDtr: getStoredValue(SERIAL_DTR_STORAGE_KEY, LEGACY_STORAGE_KEYS.serialDtr) !== "false",
+  serialRts: getStoredValue(SERIAL_RTS_STORAGE_KEY, LEGACY_STORAGE_KEYS.serialRts) !== "false",
   sensorConnect: {
     message: "Ready to connect sensors",
     busyType: null,
@@ -328,7 +351,7 @@ function wireEvents() {
 }
 
 function initializeTheme() {
-  const storedTheme = localStorage.getItem(THEME_STORAGE_KEY);
+  const storedTheme = getStoredValue(THEME_STORAGE_KEY, LEGACY_STORAGE_KEYS.theme);
   const prefersDark = window.matchMedia?.("(prefers-color-scheme: dark)").matches;
   setTheme(storedTheme ?? (prefersDark ? "dark" : "light"), { persist: false });
 }
@@ -882,7 +905,7 @@ function getTrialForSummary() {
 
 function loadRecordedTrials() {
   try {
-    const parsed = JSON.parse(localStorage.getItem(TRIALS_STORAGE_KEY) || "[]");
+    const parsed = JSON.parse(getStoredValue(TRIALS_STORAGE_KEY, LEGACY_STORAGE_KEYS.trials) || "[]");
     if (!Array.isArray(parsed)) return [];
     return parsed.map(normalizeTrial).filter(Boolean);
   } catch {

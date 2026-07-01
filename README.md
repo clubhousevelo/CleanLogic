@@ -1,6 +1,6 @@
-# PurelyFit Modern
+# CleanLogic
 
-Hardware-first prototype for a clean-room replacement of the legacy PurelyCustom / PrecisionFit software.
+CleanLogic is a fast and light web-based remake of PureLogic to control fit bikes with the Powerbahn resistance unit.
 
 ## Current scope
 
