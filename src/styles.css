@@ -91,8 +91,13 @@ textarea {
   width: 48px;
   height: 48px;
   border-radius: 8px;
-  background: var(--accent);
-  font-weight: 800;
+  overflow: hidden;
+}
+
+.brand-mark img {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
 .brand h1,
