@@ -461,7 +461,7 @@ function drawTrend(canvas, history) {
   };
   const maxPower = getGraphPowerScale(history);
   drawGrid(ctx, chart, maxPower);
-  drawTrendLegend(ctx, chart, history.at(-1));
+  drawTrendLatestValues(ctx, chart, history.at(-1));
   if (history.length < 2) return;
   drawTrendSeries(ctx, chart, history, "power", maxPower, "#2d6cdf");
   drawTrendSeries(ctx, chart, history, "cadence", GRAPH_CADENCE_SCALE_RPM, "#d96c2c");
@@ -514,7 +514,7 @@ function drawTrendSeries(ctx, chart, history, key, scale, color) {
   ctx.stroke();
 }
 
-function drawTrendLegend(ctx, chart, latest) {
+function drawTrendLatestValues(ctx, chart, latest) {
   if (!latest) return;
   const items = [
     ["#2d6cdf", `${formatWholeNumber(latest.power)} W`],

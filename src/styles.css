@@ -601,6 +601,51 @@ main {
   flex: 0 0 auto;
 }
 
+.panel-title-row {
+  display: flex;
+  align-items: center;
+  gap: clamp(12px, 1.5vw, 22px);
+  min-width: 0;
+}
+
+.trend-legend {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.trend-legend-item {
+  --legend-color: var(--accent);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.trend-legend-item::before {
+  content: "";
+  width: 18px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--legend-color);
+}
+
+.trend-legend-power {
+  --legend-color: #2d6cdf;
+}
+
+.trend-legend-cadence {
+  --legend-color: #d96c2c;
+}
+
+.trend-legend-speed {
+  --legend-color: #178f62;
+}
+
 .trend-panel canvas {
   flex: 1 1 auto;
   height: 100%;

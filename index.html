@@ -263,7 +263,14 @@
           <div class="live-analysis-grid">
             <section class="chart-panel trend-panel">
               <div class="panel-heading">
-                <h3 id="trendTitle">Live Power Trend</h3>
+                <div class="panel-title-row">
+                  <h3 id="trendTitle">Live Power Trend</h3>
+                  <div class="trend-legend" aria-label="Graph legend">
+                    <span class="trend-legend-item trend-legend-power">Power</span>
+                    <span class="trend-legend-item trend-legend-cadence">Cadence</span>
+                    <span class="trend-legend-item trend-legend-speed">Speed</span>
+                  </div>
+                </div>
                 <span id="trendStatus">waiting</span>
               </div>
               <canvas id="trendCanvas" width="1200" height="240"></canvas>
