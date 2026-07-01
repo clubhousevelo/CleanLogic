@@ -150,7 +150,6 @@ function bindElements() {
     "applyPowerbahnPureLogicFixedPowerButton",
     "powerbahnPureLogicFixedPowerState",
     "resetPowerbahnResistanceButton",
-    "trialStatus",
     "trialRecordButton",
     "clearTrialSelectionButton",
     "trialNotesInput",
@@ -1830,10 +1829,10 @@ function renderTrials() {
   const selectedTrial = getSelectedTrial();
   const activeTrial = state.activeTrial;
 
-  elements.trialRecordButton.textContent = activeTrial ? "Stop Trial" : "Record Trial";
   elements.trialRecordButton.classList.toggle("recording", Boolean(activeTrial));
+  elements.trialRecordButton.setAttribute("aria-label", activeTrial ? "Stop trial" : "Record trial");
+  elements.trialRecordButton.title = activeTrial ? "Stop trial" : "Record trial";
   elements.clearTrialSelectionButton.disabled = !selectedTrial;
-  elements.trialStatus.textContent = getTrialStatusText(activeTrial, selectedTrial);
 
   if (document.activeElement !== elements.trialNotesInput) {
     elements.trialNotesInput.value = focusedTrial?.notes ?? state.trialNoteDraft;
@@ -1846,18 +1845,6 @@ function renderTrials() {
 
   renderTrialList();
   renderTrialRows();
-}
-
-function getTrialStatusText(activeTrial, selectedTrial) {
-  if (activeTrial) {
-    return `Recording · ${formatTrialDuration(activeTrial)} · ${activeTrial.samples.length} samples`;
-  }
-  if (selectedTrial) {
-    return `Viewing ${selectedTrial.name} · ${formatTrialDuration(selectedTrial)}`;
-  }
-  return state.trials.length
-    ? `${state.trials.length} saved trial${state.trials.length === 1 ? "" : "s"}`
-    : "Ready to record";
 }
 
 function renderTrialList() {

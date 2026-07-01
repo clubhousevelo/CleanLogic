@@ -212,20 +212,26 @@
             </section>
           </div>
           <section class="trial-recorder-panel">
-            <div class="panel-heading">
-              <div>
-                <h3>Trials</h3>
-                <span id="trialStatus">Ready to record</span>
-              </div>
-              <div class="controls compact">
-                <button class="primary-button" id="trialRecordButton" type="button">Record Trial</button>
-                <button class="secondary-button" id="clearTrialSelectionButton" type="button">Live Graph</button>
-              </div>
-            </div>
             <div class="trial-recorder-grid">
+              <div class="trial-actions-card">
+                <span>Trials</span>
+                <div class="trial-action-buttons">
+                  <button class="trial-icon-button trial-record-button" id="trialRecordButton" type="button" aria-label="Record trial" title="Record trial">
+                    <span class="record-dot" aria-hidden="true"></span>
+                    <span class="stop-square" aria-hidden="true"></span>
+                  </button>
+                  <button class="trial-icon-button" id="clearTrialSelectionButton" type="button" aria-label="Show live graph" title="Show live graph">
+                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                      <path d="M4 19h16"></path>
+                      <path d="M5 16l4-5 4 3 5-7"></path>
+                      <path d="M5 5v14"></path>
+                    </svg>
+                  </button>
+                </div>
+              </div>
               <label class="trial-notes-field">
                 Notes
-                <textarea id="trialNotesInput" rows="3" placeholder="Short notes for this trial"></textarea>
+                <textarea id="trialNotesInput" rows="2" placeholder="Trial notes"></textarea>
               </label>
               <div class="trial-summary-grid">
                 <article>

@@ -643,20 +643,102 @@ main {
 
 .trial-recorder-panel {
   display: grid;
-  gap: 10px;
-  padding: 12px;
-}
-
-.trial-recorder-panel .panel-heading {
-  margin-bottom: 0;
+  padding: 8px;
 }
 
 .trial-recorder-grid {
   display: grid;
-  grid-template-columns: minmax(180px, 0.72fr) minmax(320px, 1fr) minmax(240px, 0.88fr);
-  gap: 10px;
+  grid-template-columns: auto minmax(130px, 0.44fr) minmax(360px, 1.35fr) minmax(210px, 0.72fr);
+  gap: 8px;
   align-items: stretch;
   min-height: 0;
+}
+
+.trial-actions-card {
+  display: grid;
+  align-content: center;
+  gap: 6px;
+  min-width: 128px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px;
+  background: color-mix(in srgb, var(--panel), var(--bg) 20%);
+}
+
+.trial-actions-card > span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.trial-action-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.trial-icon-button {
+  display: inline-grid;
+  place-items: center;
+  width: 46px;
+  min-height: 46px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0;
+  background: var(--panel);
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.trial-icon-button svg {
+  width: 23px;
+  height: 23px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.trial-icon-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.trial-record-button {
+  color: var(--accent-2);
+}
+
+.record-dot,
+.stop-square {
+  display: block;
+  width: 18px;
+  height: 18px;
+  background: currentColor;
+}
+
+.record-dot {
+  border-radius: 50%;
+}
+
+.stop-square {
+  display: none;
+  border-radius: 4px;
+}
+
+.trial-record-button.recording {
+  border-color: color-mix(in srgb, var(--accent-2) 64%, var(--line));
+  background: var(--accent-2);
+  color: #fff;
+}
+
+.trial-record-button.recording .record-dot {
+  display: none;
+}
+
+.trial-record-button.recording .stop-square {
+  display: block;
 }
 
 .trial-notes-field {
@@ -665,11 +747,12 @@ main {
 
 textarea {
   width: 100%;
-  min-height: 72px;
+  min-height: 46px;
+  height: 46px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 10px;
-  resize: vertical;
+  padding: 7px 9px;
+  resize: none;
   background: var(--panel);
   color: var(--text);
 }
@@ -684,12 +767,12 @@ textarea {
 .trial-summary-grid article {
   display: grid;
   align-content: center;
-  gap: 5px;
+  gap: 4px;
   min-width: 0;
-  min-height: 72px;
+  min-height: 62px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 10px;
+  padding: 8px 10px;
   background: color-mix(in srgb, var(--panel), var(--bg) 20%);
 }
 
@@ -704,7 +787,7 @@ textarea {
 .trial-summary-grid strong {
   overflow: hidden;
   color: var(--ink);
-  font-size: clamp(16px, 1.5vw, 22px);
+  font-size: clamp(15px, 1.3vw, 19px);
   line-height: 1.05;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -714,17 +797,17 @@ textarea {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(142px, 1fr));
   gap: 8px;
-  max-height: 112px;
+  max-height: 62px;
   overflow: auto;
 }
 
 .trial-card {
   display: grid;
-  gap: 4px;
-  min-height: 72px;
+  gap: 2px;
+  min-height: 62px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 9px 10px;
+  padding: 7px 9px;
   background: var(--panel);
   color: var(--ink-soft);
   text-align: left;
@@ -758,7 +841,7 @@ textarea {
 .empty-state {
   display: grid;
   place-items: center;
-  min-height: 72px;
+  min-height: 62px;
   border: 1px dashed var(--line);
   border-radius: 8px;
 }
