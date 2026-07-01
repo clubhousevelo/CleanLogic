@@ -119,9 +119,7 @@ function bindElements() {
     "speedValue",
     "speedRawValue",
     "gradeValue",
-    "gradeTargetValue",
     "gearValue",
-    "gearTargetValue",
     "trendStatus",
     "trendCanvas",
     "pedalStatus",
@@ -381,9 +379,7 @@ function renderAll(force) {
   elements.speedValue.textContent = displaySpeed == null ? "-- mph" : `${displaySpeed.toFixed(1)} mph`;
   elements.speedRawValue.textContent = powerSensor?.speedRaw == null ? "raw --" : `raw ${Math.round(powerSensor.speedRaw)}`;
   elements.gradeValue.textContent = displayGrade == null ? "--%" : `${displayGrade.toFixed(1)}%`;
-  elements.gradeTargetValue.textContent = `target ${state.serialPower.targetGrade}%`;
   elements.gearValue.textContent = displayGear == null ? "--" : String(Math.round(displayGear));
-  elements.gearTargetValue.textContent = `target ${state.serialPower.targetGear}`;
   elements.trendStatus.textContent = state.serialPower.connected ? "live" : "waiting";
 
   drawTrend(elements.trendCanvas, state.graphHistory);
@@ -1353,8 +1349,6 @@ function renderPowerbahnConnectionStatus() {
 function renderPowerbahnControl() {
   const { serialPower } = state;
   const activeFixedPowerText = getAppliedFixedPowerText(serialPower);
-  elements.gradeTargetValue.textContent = `target ${serialPower.targetGrade}%`;
-  elements.gearTargetValue.textContent = `target ${serialPower.targetGear}`;
   elements.powerbahnFixedPowerEnabledInput.checked = Boolean(serialPower.fixedPowerEnabled);
   elements.powerbahnFixedPowerInput.value = serialPower.targetFixedPower;
   elements.powerbahnFixedPowerState.textContent = activeFixedPowerText;

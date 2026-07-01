@@ -833,26 +833,21 @@ th {
 
 .resistance-adjust-readout {
   display: grid;
-  gap: 2px;
+  gap: 4px;
   place-content: center;
   text-align: center;
 }
 
 .resistance-adjust-readout span {
   color: var(--muted);
-  font-size: 16px;
+  font-size: 20px;
   font-weight: 800;
 }
 
 .resistance-adjust-readout strong {
   color: var(--ink);
-  font-size: 32px;
-  line-height: 1;
-}
-
-.resistance-adjust-readout small {
-  color: var(--muted);
-  font-size: 15px;
+  font-size: 44px;
+  line-height: 1.05;
   font-weight: 800;
 }
 
