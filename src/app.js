@@ -546,7 +546,7 @@ function updatePedalAnalysis(analysis) {
 }
 
 function renderPedalAnalysis() {
-  const analysis = state.pedalAnalysis;
+  const analysis = state.pedalAnalysis ?? getLivePedalFallbackAnalysis();
   const frozen = Boolean(analysis && isPedalAnalysisFrozen());
   drawPedalDynamics(elements.pedalCanvas, analysis);
 
@@ -560,6 +560,16 @@ function renderPedalAnalysis() {
   }
 
   elements.pedalStatus.textContent = getPedalAnalysisStatus(analysis, frozen);
+  if (analysis.fallback) {
+    elements.pedalBalanceValue.textContent = "-- / --";
+    elements.pedalPeakValue.textContent = `${analysis.crankAngleSource === "estimated" ? "est " : ""}crank ${Math.round(analysis.crankAngle)}°`;
+    elements.pedalDeadSpotValue.textContent = `${Math.round(analysis.cadence)} RPM`;
+    elements.pedalAverageValue.textContent = analysis.averageTorque == null
+      ? "--"
+      : `${Math.round(analysis.averageTorque)} Nm est`;
+    return;
+  }
+
   elements.pedalBalanceValue.textContent = `${Math.round(analysis.leftShare)} / ${Math.round(analysis.rightShare)}`;
   elements.pedalPeakValue.textContent = `${Math.round(analysis.peakTorque)} @ ${analysis.peakAngle}°`;
   elements.pedalDeadSpotValue.textContent = `${analysis.quietestAngle ?? analysis.splitAngle}°`;
@@ -567,10 +577,61 @@ function renderPedalAnalysis() {
 }
 
 function getPedalAnalysisStatus(analysis, frozen) {
+  if (analysis.fallback) {
+    const crankSource = analysis.crankAngleSource === "estimated" ? "estimated crank angle" : "live crank angle";
+    const status = `${crankSource} ${Math.round(analysis.crankAngle)}° · torque pending`;
+    return frozen ? `frozen at 0 RPM · ${status}` : status;
+  }
   const status = analysis.complete
     ? `${analysis.referenceSource} ${analysis.splitAngle}° · rev ${analysis.rotationCount}`
     : `collecting ${analysis.rangeCount}/6`;
   return frozen ? `frozen at 0 RPM · ${status}` : status;
+}
+
+function getLivePedalFallbackAnalysis() {
+  if (!state.serialPower.connected) return null;
+
+  const sensor = state.activeSensors[SENSOR_TYPES.power];
+  const measurement = state.lastTelemetry;
+  const cadence = getPedalAnalysisCadence();
+  if (!Number.isFinite(cadence) || cadence <= 0) {
+    return null;
+  }
+
+  const crankAngle = getFallbackCrankAngle(sensor?.crankAngle ?? measurement?.crankAngle, cadence);
+  const power = getRollingAverage("power", POWER_ROLLING_WINDOW_MS) ?? sensor?.rawPower ?? measurement?.rawPower ?? null;
+  const averageTorque = estimateTorqueFromPowerCadence(power, cadence);
+  return {
+    fallback: true,
+    crankAngle: crankAngle.angle,
+    crankAngleSource: crankAngle.source,
+    cadence,
+    power,
+    averageTorque,
+  };
+}
+
+function getFallbackCrankAngle(rawCrankAngle, cadence) {
+  if (Number.isFinite(rawCrankAngle)) {
+    return {
+      angle: normalizeDegrees(rawCrankAngle),
+      source: "live",
+    };
+  }
+
+  return {
+    angle: normalizeDegrees((performance.now() / 1000) * (cadence / 60) * 360),
+    source: "estimated",
+  };
+}
+
+function estimateTorqueFromPowerCadence(power, cadence) {
+  if (!Number.isFinite(power) || !Number.isFinite(cadence) || cadence <= 0) return null;
+  return power / ((cadence * Math.PI * 2) / 60);
+}
+
+function normalizeDegrees(value) {
+  return ((value % 360) + 360) % 360;
 }
 
 function isPedalAnalysisFrozen() {
@@ -602,6 +663,10 @@ function drawPedalDynamics(canvas, analysis) {
   const radius = Math.max(20, Math.min(width, height) / 2 - 28);
 
   drawPolarGrid(ctx, centerX, centerY, radius);
+  if (analysis?.fallback) {
+    drawLiveCrankFallback(ctx, analysis, centerX, centerY, radius);
+    return;
+  }
   if (!analysis?.profile?.length) {
     ctx.fillStyle = getCssColor("--muted");
     ctx.font = "13px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
@@ -617,6 +682,27 @@ function drawPedalDynamics(canvas, analysis) {
   drawReferenceLine(ctx, centerX, centerY, radius, analysis.splitAngle, "#2d6cdf");
   drawReferenceLine(ctx, centerX, centerY, radius, analysis.splitAngle + 180, "#d96c2c");
   drawReferenceLine(ctx, centerX, centerY, radius * 0.92, analysis.peakAngle, "#178f62");
+}
+
+function drawLiveCrankFallback(ctx, analysis, centerX, centerY, radius) {
+  const crankAngle = normalizeDegrees(analysis.crankAngle);
+  drawReferenceLine(ctx, centerX, centerY, radius, crankAngle, "#178f62");
+  const crankPoint = polarPoint(centerX, centerY, radius * 0.72, crankAngle);
+
+  ctx.fillStyle = "#178f62";
+  ctx.beginPath();
+  ctx.arc(crankPoint.x, crankPoint.y, 6, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = getCssColor("--ink");
+  ctx.font = "700 13px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(`${Math.round(crankAngle)}°`, centerX, centerY - 8);
+
+  ctx.fillStyle = getCssColor("--muted");
+  ctx.font = "12px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
+  ctx.fillText(`${Math.round(analysis.cadence)} RPM`, centerX, centerY + 12);
 }
 
 function drawPolarGrid(ctx, centerX, centerY, radius) {
