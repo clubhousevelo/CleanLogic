@@ -254,7 +254,7 @@ export async function setSerialGrade(controller, grade) {
     return;
   }
 
-  const rawGrade = targetGrade * 10;
+  const rawGrade = Math.round(targetGrade * 10);
   await writeFrame(controller, createLongCommandFrame(
     0x28,
     lowHighBytes(rawGrade, GRADE_UPDATE_STATUS),
@@ -846,7 +846,7 @@ function unstuffFrameBytes(bytes) {
 function clampGrade(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return 0;
-  return Math.min(25, Math.max(0, Math.round(number)));
+  return Math.min(25, Math.max(0, Math.round(number * 2) / 2));
 }
 
 function clampByte(value) {

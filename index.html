@@ -194,10 +194,10 @@
                       <strong id="gradeValue">--%</strong>
                     </div>
                     <div class="stepper-control" aria-label="Adjust grade">
-                      <button class="secondary-button" data-grade-step="1" aria-label="Increase grade">&#9650;</button>
-                      <button class="secondary-button" data-grade-step="-1" aria-label="Decrease grade">&#9660;</button>
+                      <button class="secondary-button" data-grade-step="0.5" aria-label="Increase grade">&#9650;</button>
+                      <button class="secondary-button" data-grade-step="-0.5" aria-label="Decrease grade">&#9660;</button>
                     </div>
-                    <input id="powerbahnGradeInput" type="hidden" min="0" max="25" step="1" value="0" />
+                    <input id="powerbahnGradeInput" type="hidden" min="0" max="25" step="0.5" value="0" />
                     <button class="secondary-button" id="applyPowerbahnGradeButton" hidden>Apply Grade</button>
                   </div>
                   <div class="resistance-adjust-control">
@@ -391,9 +391,58 @@
         </section>
 
         <section class="panel" id="sessionsPanel">
-          <div class="table-toolbar">
-            <h3>Recorded Trials</h3>
+          <div class="table-toolbar trial-table-toolbar">
+            <div>
+              <h3>Recorded Trials</h3>
+              <span id="trialReviewStatus">Select a trial</span>
+            </div>
+            <div class="controls compact">
+              <button class="secondary-button" id="deleteSelectedTrialButton" type="button">Remove Selected</button>
+            </div>
           </div>
+          <section class="trial-review-panel">
+            <div class="trial-review-summary-grid">
+              <article>
+                <span>Avg power</span>
+                <strong id="trialReviewPower">-- W</strong>
+              </article>
+              <article>
+                <span>Avg cadence</span>
+                <strong id="trialReviewCadence">-- RPM</strong>
+              </article>
+              <article>
+                <span>Avg speed</span>
+                <strong id="trialReviewSpeed">-- mph</strong>
+              </article>
+              <article>
+                <span>L/R balance</span>
+                <strong id="trialReviewBalance">-- / --</strong>
+              </article>
+              <article>
+                <span>Peak</span>
+                <strong id="trialReviewPeak">--</strong>
+              </article>
+              <article>
+                <span>Quiet angle</span>
+                <strong id="trialReviewQuiet">--</strong>
+              </article>
+              <article>
+                <span>Avg torque</span>
+                <strong id="trialReviewTorque">--</strong>
+              </article>
+              <article>
+                <span>Samples</span>
+                <strong id="trialReviewSamples">--</strong>
+              </article>
+            </div>
+            <div class="trial-review-plot">
+              <div class="panel-heading">
+                <h3>Pedaling Plot</h3>
+                <span id="trialPedalPlotStatus">waiting</span>
+              </div>
+              <canvas id="trialPedalCanvas" width="520" height="360"></canvas>
+            </div>
+          </section>
           <div class="table-wrap">
             <table>
               <thead>

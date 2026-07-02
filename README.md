@@ -48,7 +48,7 @@ Build a desktop wrapper around this core UI. Electron is the quickest cross-plat
 
 - Legacy Powerbahn dashboard polling uses the command sequence `A5 A8 A9 B4 D0 D2`. The original PrecisionFit app reads the 3-byte responses as little-endian `UInt16` values plus a trailing status byte, not as one 24-bit number.
 - Legacy dashboard values map as `A5=speed`, `A8=grade`, `A9=gear`, `B4=power`, `D0=brake RPM`, and `D2=crank angle`. Speed is displayed as raw speed times `0.621371 / 100`; cadence is brake RPM divided by `15.394`; grade is raw grade divided by `10`.
-- Legacy Grade Up/Down queues a whole-number grade, sends grade times `10`, and writes command `0x28` with payload `[gradeLow, gradeHigh, 0x4C]` inside the standard XOR-framed serial packet.
+- Legacy Grade Up/Down queues grade in 0.5% steps, sends grade times `10`, and writes command `0x28` with payload `[gradeLow, gradeHigh, 0x4C]` inside the standard XOR-framed serial packet.
 - Legacy Gear Up/Down writes command `0x29` with one gear byte inside the same XOR-framed serial packet. The dashboard limits exposed gears to `0..13`, matching PureLogic's practical gear range instead of the raw byte range.
 - Legacy fixed wattage uses command `0x34` with payload `[wattLow, wattHigh, 0x58]`; unchecking fixed power sends wattage `0`. The original clamps fixed wattage to `0..1000 W`.
 - Legacy encrypted configuration frames use the seed returned by the `0x9F` startup request. The payload is encrypted, then XOR-checksummed and byte-stuffed before `F1/F2` framing.

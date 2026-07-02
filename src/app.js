@@ -57,8 +57,10 @@ const TRIALS_STORAGE_KEY = "cleanlogic.trials";
 const POWERBAHN_RELEASE_BAUD_RATE = 115200;
 const POWERBAHN_FIXED_POWER_MAX = 1000;
 const POWERBAHN_GEAR_MAX = 13;
+const PEDAL_PROFILE_SIZE = 360;
 const MAX_SAVED_TRIALS = 20;
 const MAX_TRIAL_SAMPLES = 3600;
+const MAX_TRIAL_PEDAL_SNAPSHOTS = 600;
 
 const BLUETOOTH_SENSOR_PROFILES = {
   [SENSOR_TYPES.power]: {
@@ -182,6 +184,18 @@ function bindElements() {
     "trialPedalAverage",
     "trialList",
     "trialRows",
+    "deleteSelectedTrialButton",
+    "trialReviewStatus",
+    "trialReviewPower",
+    "trialReviewCadence",
+    "trialReviewSpeed",
+    "trialReviewBalance",
+    "trialReviewPeak",
+    "trialReviewQuiet",
+    "trialReviewTorque",
+    "trialReviewSamples",
+    "trialPedalPlotStatus",
+    "trialPedalCanvas",
     "customerRows",
     "customerForm",
     "sensorCards",
@@ -233,6 +247,8 @@ function wireEvents() {
   elements.clearTrialSelectionButton.addEventListener("click", clearTrialSelection);
   elements.trialNotesInput.addEventListener("input", updateTrialNotes);
   elements.trialList.addEventListener("click", handleTrialListClick);
+  elements.trialRows.addEventListener("click", handleTrialRowsClick);
+  elements.deleteSelectedTrialButton.addEventListener("click", deleteSelectedTrial);
   elements.customerForm.addEventListener("submit", (event) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
@@ -657,7 +673,7 @@ function getPedalAnalysisCadence() {
   return null;
 }
 
-function drawPedalDynamics(canvas, analysis) {
+function drawPedalDynamics(canvas, analysis, emptyLabel = "Collecting torque profile") {
   const ctx = prepareCanvas(canvas);
   const { width, height } = getCanvasSize(canvas);
   ctx.clearRect(0, 0, width, height);
@@ -675,7 +691,7 @@ function drawPedalDynamics(canvas, analysis) {
     ctx.font = "13px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText("Collecting torque profile", centerX, centerY);
+    ctx.fillText(emptyLabel, centerX, centerY);
     return;
   }
 
@@ -806,6 +822,8 @@ function startTrialRecording() {
     notes: elements.trialNotesInput.value.trim(),
     samples: [],
     pedalSnapshots: [],
+    pedalProfileAverage: null,
+    pedalProfileCount: 0,
   };
 
   const latestSample = state.history.at(-1);
@@ -880,6 +898,25 @@ function handleTrialListClick(event) {
   renderAll(true);
 }
 
+function handleTrialRowsClick(event) {
+  const row = event.target.closest("[data-trial-id]");
+  if (!row || state.activeTrial) return;
+  state.selectedTrialId = row.dataset.trialId;
+  renderAll(true);
+}
+
+function deleteSelectedTrial() {
+  const trial = getSelectedTrial();
+  if (!trial || state.activeTrial) return;
+  if (!window.confirm(`Remove ${trial.name}?`)) return;
+
+  state.trials = state.trials.filter((item) => item.id !== trial.id);
+  state.selectedTrialId = null;
+  state.trialNoteDraft = "";
+  saveRecordedTrials();
+  renderAll(true);
+}
+
 function getTrendView() {
   const selectedTrial = getSelectedTrial();
   if (selectedTrial) {
@@ -916,7 +953,10 @@ function recordTrialSample(sample) {
 
 function recordTrialPedalSnapshot(analysis) {
   const trial = state.activeTrial;
-  if (!trial || !analysis) return;
+  if (!trial || !analysis || analysis.fallback || !analysis.complete) return;
+  const profile = normalizePedalProfile(analysis.profile);
+  if (!profile) return;
+  updateTrialPedalProfileAverage(trial, profile);
 
   const snapshot = {
     at: new Date().toISOString(),
@@ -931,11 +971,25 @@ function recordTrialPedalSnapshot(analysis) {
   };
 
   trial.pedalSnapshots.push(snapshot);
+  if (trial.pedalSnapshots.length > MAX_TRIAL_PEDAL_SNAPSHOTS) {
+    trial.pedalSnapshots.splice(0, trial.pedalSnapshots.length - MAX_TRIAL_PEDAL_SNAPSHOTS);
+  }
+}
+
+function updateTrialPedalProfileAverage(trial, profile) {
+  const previousCount = Number.isFinite(trial.pedalProfileCount) ? trial.pedalProfileCount : 0;
+  const previousProfile = normalizePedalProfile(trial.pedalProfileAverage)
+    ?? Array(PEDAL_PROFILE_SIZE).fill(0);
+  const nextCount = previousCount + 1;
+  trial.pedalProfileAverage = previousProfile.map((value, index) => (
+    Math.round(((value * previousCount + profile[index]) / nextCount) * 10) / 10
+  ));
+  trial.pedalProfileCount = nextCount;
 }
 
 function getTrialSummary(trial) {
   if (!trial) return null;
-  const pedal = averagePedalSnapshots(trial.pedalSnapshots ?? []);
+  const pedal = averagePedalSnapshots(trial.pedalSnapshots ?? [], trial);
   return {
     power: averageMetric(trial.samples, "power"),
     cadence: averageMetric(trial.samples, "cadence"),
@@ -953,18 +1007,45 @@ function averageMetric(items = [], key) {
   return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
-function averagePedalSnapshots(snapshots) {
-  if (!snapshots.length) return null;
+function averagePedalSnapshots(snapshots, trial = null) {
+  const storedProfile = normalizePedalProfile(trial?.pedalProfileAverage);
+  if (!snapshots.length && !storedProfile) return null;
+  const profile = storedProfile ?? averagePedalProfiles(snapshots);
+  const storedProfileCount = Number.isFinite(trial?.pedalProfileCount) && trial.pedalProfileCount > 0
+    ? trial.pedalProfileCount
+    : null;
+  const snapshotProfileCount = snapshots.filter((snapshot) => Array.isArray(snapshot.profile)).length;
+  const profileCount = profile ? (storedProfileCount ?? snapshotProfileCount) : 0;
+  const profilePeakTorque = profile ? Math.max(...profile) : null;
+  const profilePeakAngle = profile && profilePeakTorque != null ? profile.indexOf(profilePeakTorque) : null;
   return {
-    count: snapshots.length,
+    count: snapshots.length || storedProfileCount || 0,
+    profileCount,
+    profile,
     leftShare: averageMetric(snapshots, "leftShare"),
     rightShare: averageMetric(snapshots, "rightShare"),
-    peakTorque: averageMetric(snapshots, "peakTorque"),
-    peakAngle: averageAngle(snapshots, "peakAngle"),
+    peakTorque: profilePeakTorque ?? averageMetric(snapshots, "peakTorque"),
+    peakAngle: profilePeakAngle ?? averageAngle(snapshots, "peakAngle"),
     quietestAngle: averageAngle(snapshots, "quietestAngle"),
     averageTorque: averageMetric(snapshots, "averageTorque"),
     splitAngle: averageAngle(snapshots, "splitAngle"),
   };
+}
+
+function averagePedalProfiles(snapshots) {
+  const profiles = snapshots
+    .map((snapshot) => snapshot.profile)
+    .filter((profile) => Array.isArray(profile) && profile.length === PEDAL_PROFILE_SIZE);
+  if (!profiles.length) return null;
+
+  const totals = Array(PEDAL_PROFILE_SIZE).fill(0);
+  profiles.forEach((profile) => {
+    profile.forEach((value, index) => {
+      totals[index] += finiteOrZero(value);
+    });
+  });
+
+  return totals.map((total) => total / profiles.length);
 }
 
 function averageAngle(items, key) {
@@ -1014,6 +1095,8 @@ function normalizeTrial(trial) {
     notes: trial.notes || "",
     samples: samples.map(normalizeTrialSample).filter(Boolean),
     pedalSnapshots: pedalSnapshots.map(normalizePedalSnapshot).filter(Boolean),
+    pedalProfileAverage: normalizePedalProfile(trial.pedalProfileAverage),
+    pedalProfileCount: Math.max(0, Math.round(finiteOrZero(trial.pedalProfileCount))),
   };
 }
 
@@ -1033,6 +1116,7 @@ function normalizePedalSnapshot(snapshot) {
   if (!snapshot || typeof snapshot !== "object") return null;
   return {
     at: toIsoString(snapshot.at),
+    profile: normalizePedalProfile(snapshot.profile),
     leftShare: finiteOrNull(snapshot.leftShare),
     rightShare: finiteOrNull(snapshot.rightShare),
     peakTorque: finiteOrNull(snapshot.peakTorque),
@@ -1042,6 +1126,14 @@ function normalizePedalSnapshot(snapshot) {
     splitAngle: finiteOrNull(snapshot.splitAngle),
     complete: Boolean(snapshot.complete),
   };
+}
+
+function normalizePedalProfile(values) {
+  if (!Array.isArray(values) || values.length !== PEDAL_PROFILE_SIZE) return null;
+  return values.map((value) => {
+    const number = Number(value);
+    return Number.isFinite(number) ? Math.round(number * 10) / 10 : 0;
+  });
 }
 
 function saveRecordedTrials() {
@@ -1724,7 +1816,7 @@ async function runPowerbahnControlAction(action) {
 function normalizePowerbahnGrade(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return 0;
-  return Math.min(25, Math.max(0, Math.round(number)));
+  return Math.min(25, Math.max(0, Math.round(number * 2) / 2));
 }
 
 function normalizePowerbahnGear(value) {
@@ -1954,9 +2046,33 @@ function renderTrials() {
   elements.trialAvgCadence.textContent = formatTrialCadence(summary?.cadence);
   elements.trialAvgSpeed.textContent = formatTrialSpeed(summary?.speed);
   elements.trialPedalAverage.textContent = formatTrialPedalAverage(summary?.pedal, { compact: true });
+  renderTrialReview(focusedTrial, summary);
 
   renderTrialList();
   renderTrialRows();
+}
+
+function renderTrialReview(trial, summary) {
+  const pedal = summary?.pedal;
+  const selectedTrial = getSelectedTrial();
+  elements.deleteSelectedTrialButton.disabled = !selectedTrial || Boolean(state.activeTrial);
+  elements.trialReviewStatus.textContent = trial
+    ? `${trial.name} · ${formatTrialDate(trial.startedAt)} · ${formatTrialDuration(trial)}`
+    : "Select a trial";
+  elements.trialReviewPower.textContent = formatTrialPower(summary?.power);
+  elements.trialReviewCadence.textContent = formatTrialCadence(summary?.cadence);
+  elements.trialReviewSpeed.textContent = formatTrialSpeed(summary?.speed);
+  elements.trialReviewBalance.textContent = formatPedalBalance(pedal);
+  elements.trialReviewPeak.textContent = formatTrialPedalPeak(pedal);
+  elements.trialReviewQuiet.textContent = formatTrialPedalAngle(pedal?.quietestAngle);
+  elements.trialReviewTorque.textContent = formatTrialTorque(pedal?.averageTorque);
+  elements.trialReviewSamples.textContent = formatTrialSampleCount(summary, pedal);
+  elements.trialPedalPlotStatus.textContent = formatTrialPedalPlotStatus(pedal);
+  drawPedalDynamics(
+    elements.trialPedalCanvas,
+    getTrialPedalPlotAnalysis(pedal),
+    trial ? "No pedaling plot" : "Select a trial",
+  );
 }
 
 function renderTrialList() {
@@ -1989,8 +2105,9 @@ function renderTrialRows() {
   elements.trialRows.innerHTML = state.trials
     .map((trial) => {
       const summary = getTrialSummary(trial);
+      const isSelected = trial.id === state.selectedTrialId;
       return `
-        <tr>
+        <tr class="trial-row${isSelected ? " selected" : ""}" data-trial-id="${escapeHtml(trial.id)}">
           <td>${escapeHtml(trial.name)}</td>
           <td>${formatTrialDate(trial.startedAt)}</td>
           <td>${formatTrialPower(summary?.power)}</td>
@@ -2017,11 +2134,57 @@ function formatTrialSpeed(value) {
   return value == null ? "-- mph" : `${value.toFixed(1)} mph`;
 }
 
+function formatTrialTorque(value) {
+  return value == null ? "--" : `${Math.round(value)} Nm`;
+}
+
+function formatTrialPedalPeak(pedal) {
+  if (pedal?.peakTorque == null || pedal?.peakAngle == null) return "--";
+  return `${Math.round(pedal.peakTorque)} @ ${Math.round(pedal.peakAngle)}°`;
+}
+
+function formatTrialPedalAngle(value) {
+  return value == null ? "--" : `${Math.round(value)}°`;
+}
+
+function formatTrialSampleCount(summary, pedal) {
+  const rideSamples = summary?.samples ?? 0;
+  const pedalSamples = pedal?.profileCount ?? pedal?.count ?? 0;
+  return `${rideSamples} / ${pedalSamples}`;
+}
+
+function formatTrialPedalPlotStatus(pedal) {
+  const count = pedal?.profileCount ?? 0;
+  return count ? `avg ${count} profiles` : "no plot";
+}
+
+function getTrialPedalPlotAnalysis(pedal) {
+  if (!Array.isArray(pedal?.profile) || pedal.profile.length !== PEDAL_PROFILE_SIZE) return null;
+  const splitAngle = finiteOrNull(pedal.splitAngle ?? pedal.quietestAngle) ?? 0;
+  return {
+    profile: pedal.profile,
+    complete: true,
+    rangeCount: 6,
+    rotationCount: pedal.profileCount ?? pedal.count ?? 0,
+    peakTorque: finiteOrNull(pedal.peakTorque) ?? Math.max(...pedal.profile),
+    peakAngle: Math.round(finiteOrNull(pedal.peakAngle) ?? 0),
+    averageTorque: finiteOrNull(pedal.averageTorque) ?? averageProfileValues(pedal.profile),
+    splitAngle: Math.round(splitAngle),
+    quietestAngle: finiteOrNull(pedal.quietestAngle),
+    referenceSource: "trial average",
+    leftShare: finiteOrNull(pedal.leftShare),
+    rightShare: finiteOrNull(pedal.rightShare),
+  };
+}
+
+function averageProfileValues(profile) {
+  if (!Array.isArray(profile) || !profile.length) return 0;
+  return profile.reduce((sum, value) => sum + finiteOrZero(value), 0) / profile.length;
+}
+
 function formatTrialPedalAverage(pedal, options = {}) {
   if (!pedal?.count) return "--";
-  const balance = pedal.leftShare == null || pedal.rightShare == null
-    ? "--/--"
-    : `${Math.round(pedal.leftShare)}/${Math.round(pedal.rightShare)}`;
+  const balance = formatPedalBalance(pedal).replaceAll(" ", "");
   const torque = pedal.averageTorque == null ? "--" : Math.round(pedal.averageTorque);
   const peak = pedal.peakTorque == null ? "--" : Math.round(pedal.peakTorque);
   if (options.compact) {

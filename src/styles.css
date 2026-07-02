@@ -379,6 +379,7 @@ main {
 .chart-panel,
 .hardware-panel,
 .trial-recorder-panel,
+.trial-review-panel,
 .table-wrap,
 .form-panel,
 .sensor-card,
@@ -957,6 +958,70 @@ canvas {
   margin-bottom: 14px;
 }
 
+.trial-table-toolbar > div:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.trial-table-toolbar span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.trial-review-panel {
+  display: grid;
+  grid-template-columns: minmax(300px, 0.9fr) minmax(360px, 1.1fr);
+  gap: 14px;
+  margin-bottom: 14px;
+  padding: 14px;
+}
+
+.trial-review-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.trial-review-summary-grid article {
+  display: grid;
+  align-content: center;
+  gap: 6px;
+  min-height: 84px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: color-mix(in srgb, var(--panel), var(--bg) 22%);
+}
+
+.trial-review-summary-grid span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.trial-review-summary-grid strong {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: clamp(20px, 2.1vw, 30px);
+  line-height: 1.05;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trial-review-plot {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.trial-review-plot canvas {
+  flex: 1 1 auto;
+  min-height: 300px;
+  background: color-mix(in srgb, var(--panel), var(--bg) 32%);
+}
+
 .table-wrap {
   overflow: auto;
 }
@@ -978,6 +1043,15 @@ th {
   color: var(--muted);
   font-size: 12px;
   text-transform: uppercase;
+}
+
+.trial-row {
+  cursor: pointer;
+}
+
+.trial-row:hover,
+.trial-row.selected {
+  background: color-mix(in srgb, var(--panel-tint), transparent 18%);
 }
 
 .split-view {
@@ -1525,6 +1599,7 @@ input {
   .live-analysis-grid,
   .pedal-dynamics-layout,
   .trial-recorder-grid,
+  .trial-review-panel,
   .powerbahn-resistance-grid,
   .grade-gear-controls,
   .fixed-power-controls,
@@ -1549,6 +1624,10 @@ input {
   }
 
   .trial-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .trial-review-summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -1634,6 +1713,10 @@ input {
 
   .pedal-panel canvas {
     min-height: 160px;
+  }
+
+  .trial-review-plot canvas {
+    min-height: 220px;
   }
 
   .pedal-stat {
