@@ -123,6 +123,7 @@ const state = {
   resistance: createResistanceController(),
   trials: loadRecordedTrials(),
   selectedTrialId: null,
+  trialDropdownOpen: false,
   trialNoteDraft: "",
   activeTrial: null,
   trialClockTimer: null,
@@ -814,6 +815,7 @@ function toggleTrialRecording() {
 function startTrialRecording() {
   const now = new Date();
   state.selectedTrialId = null;
+  state.trialDropdownOpen = false;
   state.activeTrial = {
     id: createTrialId(),
     name: `Trial ${state.trials.length + 1}`,
@@ -851,6 +853,7 @@ function stopTrialRecording() {
   state.trials.unshift(trial);
   state.trials = state.trials.slice(0, MAX_SAVED_TRIALS);
   state.selectedTrialId = trial.id;
+  state.trialDropdownOpen = false;
   state.trialNoteDraft = "";
   saveRecordedTrials();
   renderAll(true);
@@ -887,14 +890,23 @@ function updateTrialNotes() {
 
 function clearTrialSelection() {
   state.selectedTrialId = null;
+  state.trialDropdownOpen = false;
   if (!state.activeTrial) state.trialNoteDraft = elements.trialNotesInput.value;
   renderAll(true);
 }
 
 function handleTrialListClick(event) {
+  const toggle = event.target.closest("[data-trial-toggle]");
+  if (toggle && !state.activeTrial) {
+    state.trialDropdownOpen = !state.trialDropdownOpen;
+    renderTrialList();
+    return;
+  }
+
   const button = event.target.closest("[data-trial-id]");
   if (!button || state.activeTrial) return;
   state.selectedTrialId = button.dataset.trialId;
+  state.trialDropdownOpen = false;
   renderAll(true);
 }
 
@@ -902,6 +914,7 @@ function handleTrialRowsClick(event) {
   const row = event.target.closest("[data-trial-id]");
   if (!row || state.activeTrial) return;
   state.selectedTrialId = row.dataset.trialId;
+  state.trialDropdownOpen = false;
   renderAll(true);
 }
 
@@ -912,6 +925,7 @@ function deleteSelectedTrial() {
 
   state.trials = state.trials.filter((item) => item.id !== trial.id);
   state.selectedTrialId = null;
+  state.trialDropdownOpen = false;
   state.trialNoteDraft = "";
   saveRecordedTrials();
   renderAll(true);
@@ -953,10 +967,22 @@ function recordTrialSample(sample) {
 
 function recordTrialPedalSnapshot(analysis) {
   const trial = state.activeTrial;
-  if (!trial || !analysis || analysis.fallback || !analysis.complete) return;
+  if (!trial || !analysis) return;
   const profile = normalizePedalProfile(analysis.profile);
-  if (!profile) return;
-  updateTrialPedalProfileAverage(trial, profile);
+  const hasProfile = Boolean(profile);
+  const hasSummaryValue = [
+    analysis.leftShare,
+    analysis.rightShare,
+    analysis.peakTorque,
+    analysis.peakAngle,
+    analysis.quietestAngle ?? analysis.splitAngle,
+    analysis.averageTorque,
+  ].some((value) => Number.isFinite(value));
+  if (!hasProfile && !hasSummaryValue) return;
+
+  if (hasProfile && analysis.complete) {
+    updateTrialPedalProfileAverage(trial, profile);
+  }
 
   const snapshot = {
     at: new Date().toISOString(),
@@ -967,6 +993,7 @@ function recordTrialPedalSnapshot(analysis) {
     quietestAngle: finiteOrNull(analysis.quietestAngle ?? analysis.splitAngle),
     averageTorque: finiteOrNull(analysis.averageTorque),
     splitAngle: finiteOrNull(analysis.splitAngle),
+    fallback: Boolean(analysis.fallback),
     complete: Boolean(analysis.complete),
   };
 
@@ -1069,8 +1096,12 @@ function getSelectedTrial() {
   return state.trials.find((trial) => trial.id === state.selectedTrialId) ?? null;
 }
 
+function getLatestTrial() {
+  return state.trials[0] ?? null;
+}
+
 function getTrialForSummary() {
-  return state.activeTrial ?? getSelectedTrial();
+  return state.activeTrial ?? getSelectedTrial() ?? getLatestTrial();
 }
 
 function loadRecordedTrials() {
@@ -1124,6 +1155,7 @@ function normalizePedalSnapshot(snapshot) {
     quietestAngle: finiteOrNull(snapshot.quietestAngle),
     averageTorque: finiteOrNull(snapshot.averageTorque),
     splitAngle: finiteOrNull(snapshot.splitAngle),
+    fallback: Boolean(snapshot.fallback),
     complete: Boolean(snapshot.complete),
   };
 }
@@ -2076,24 +2108,63 @@ function renderTrialReview(trial, summary) {
 }
 
 function renderTrialList() {
+  const currentTrial = state.activeTrial ?? getSelectedTrial() ?? getLatestTrial();
+
   if (!state.trials.length) {
-    elements.trialList.innerHTML = '<div class="empty-state">No trials recorded yet</div>';
+    elements.trialList.innerHTML = currentTrial
+      ? renderCurrentTrialCard(currentTrial, {
+        summary: getTrialSummary(currentTrial),
+        active: true,
+        dropdownOpen: false,
+      })
+      : '<div class="empty-state">No trials recorded yet</div>';
     return;
   }
 
-  elements.trialList.innerHTML = state.trials
-    .map((trial) => {
-      const summary = getTrialSummary(trial);
-      const isSelected = trial.id === state.selectedTrialId;
-      return `
-        <button class="trial-card${isSelected ? " selected" : ""}" data-trial-id="${escapeHtml(trial.id)}" type="button"${state.activeTrial ? " disabled" : ""}>
-          <span>${escapeHtml(trial.name)}</span>
-          <strong>${formatTrialPower(summary?.power)} · ${formatTrialSpeed(summary?.speed)}</strong>
-          <small>${formatTrialDate(trial.startedAt)} · ${formatTrialDuration(trial)}</small>
-        </button>
-      `;
-    })
-    .join("");
+  const summary = getTrialSummary(currentTrial);
+  const dropdown = state.trialDropdownOpen && !state.activeTrial
+    ? `<div class="trial-dropdown-menu">${state.trials.map(renderTrialDropdownOption).join("")}</div>`
+    : "";
+
+  elements.trialList.innerHTML = `
+    <div class="trial-picker">
+      ${renderCurrentTrialCard(currentTrial, {
+        summary,
+        active: Boolean(state.activeTrial),
+        dropdownOpen: state.trialDropdownOpen,
+      })}
+      ${dropdown}
+    </div>
+  `;
+}
+
+function renderCurrentTrialCard(trial, { summary, active, dropdownOpen }) {
+  const label = active ? "Recording" : state.selectedTrialId === trial.id ? "Selected trial" : "Latest trial";
+  return `
+    <button
+      class="trial-card trial-current-card${state.selectedTrialId === trial.id ? " selected" : ""}"
+      data-trial-toggle
+      type="button"
+      aria-expanded="${dropdownOpen ? "true" : "false"}"
+      ${active ? "disabled" : ""}
+    >
+      <span>${label}</span>
+      <strong>${escapeHtml(trial.name)} · ${formatTrialPower(summary?.power)} · ${formatTrialCadence(summary?.cadence)}</strong>
+      <small>${formatTrialDate(trial.startedAt)} · ${formatTrialDuration(trial)} · ${formatTrialSpeed(summary?.speed)} · ${formatTrialPedalAverage(summary?.pedal)}</small>
+    </button>
+  `;
+}
+
+function renderTrialDropdownOption(trial) {
+  const summary = getTrialSummary(trial);
+  const isSelected = trial.id === state.selectedTrialId;
+  return `
+    <button class="trial-dropdown-option${isSelected ? " selected" : ""}" data-trial-id="${escapeHtml(trial.id)}" type="button">
+      <span>${escapeHtml(trial.name)}</span>
+      <strong>${formatTrialPower(summary?.power)} · ${formatTrialCadence(summary?.cadence)} · ${formatTrialSpeed(summary?.speed)}</strong>
+      <small>${formatTrialPedalAverage(summary?.pedal)} · samples ${formatTrialSampleCount(summary, summary?.pedal)} · ${formatTrialDate(trial.startedAt)} · ${formatTrialDuration(trial)}${trial.notes ? ` · ${escapeHtml(trial.notes)}` : ""}</small>
+    </button>
+  `;
 }
 
 function renderTrialRows() {

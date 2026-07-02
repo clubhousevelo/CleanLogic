@@ -714,7 +714,7 @@ main {
 
 .trial-recorder-grid {
   display: grid;
-  grid-template-columns: auto minmax(130px, 0.44fr) minmax(360px, 1.35fr) minmax(210px, 0.72fr);
+  grid-template-columns: auto minmax(150px, 0.5fr) minmax(360px, 1.1fr) minmax(380px, 1.35fr);
   gap: 8px;
   align-items: stretch;
   min-height: 0;
@@ -843,7 +843,8 @@ textarea {
 }
 
 .trial-summary-grid span,
-.trial-card span {
+.trial-card span,
+.trial-dropdown-option span {
   color: var(--muted);
   font-size: 11px;
   font-weight: 800;
@@ -860,23 +861,49 @@ textarea {
 }
 
 .trial-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(142px, 1fr));
-  gap: 8px;
-  max-height: 62px;
-  overflow: auto;
+  position: relative;
+  min-width: 0;
+  overflow: visible;
+}
+
+.trial-picker {
+  position: relative;
+  min-width: 0;
 }
 
 .trial-card {
   display: grid;
-  gap: 2px;
+  gap: 4px;
   min-height: 62px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 7px 9px;
+  padding: 8px 10px;
   background: var(--panel);
   color: var(--ink-soft);
   text-align: left;
+}
+
+.trial-current-card {
+  position: relative;
+  width: 100%;
+  padding-right: 34px;
+}
+
+.trial-current-card::after {
+  content: "";
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  border-bottom: 2px solid currentColor;
+  border-right: 2px solid currentColor;
+  opacity: 0.72;
+  transform: translateY(-65%) rotate(45deg);
+}
+
+.trial-current-card[aria-expanded="true"]::after {
+  transform: translateY(-35%) rotate(225deg);
 }
 
 .trial-card.selected {
@@ -892,16 +919,69 @@ textarea {
 .trial-card strong {
   overflow: hidden;
   color: var(--ink);
-  font-size: 14px;
+  font-size: 15px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .trial-card small,
+.trial-dropdown-option small,
 .empty-state {
   color: var(--muted);
   font-size: 12px;
   font-weight: 700;
+}
+
+.trial-card small,
+.trial-dropdown-option small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trial-dropdown-menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 20;
+  display: grid;
+  gap: 6px;
+  max-height: min(420px, 62vh);
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+.trial-dropdown-option {
+  display: grid;
+  gap: 4px;
+  min-height: 72px;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 9px 10px;
+  background: color-mix(in srgb, var(--panel), var(--bg) 10%);
+  color: var(--ink-soft);
+  text-align: left;
+  cursor: pointer;
+}
+
+.trial-dropdown-option:hover,
+.trial-dropdown-option.selected {
+  border-color: rgba(15, 118, 110, 0.45);
+  background: var(--panel-tint);
+}
+
+.trial-dropdown-option strong {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .empty-state {
@@ -1629,6 +1709,11 @@ input {
 
   .trial-review-summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .trial-dropdown-menu {
+    position: static;
+    margin-top: 6px;
   }
 
   .stepper-control {
