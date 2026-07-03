@@ -100,6 +100,8 @@ const state = {
   lastGraphSampleAt: null,
   lastTelemetry: null,
   pedalAnalysis: null,
+  lastTorquePedalAnalysis: null,
+  trendHover: null,
   activeSensors: {
     [SENSOR_TYPES.power]: null,
     [SENSOR_TYPES.heartRate]: null,
@@ -186,7 +188,7 @@ function bindElements() {
     "trialAvgPower",
     "trialAvgCadence",
     "trialAvgSpeed",
-    "trialPedalAverage",
+    "trialElapsedValue",
     "trialList",
     "trialRows",
     "deleteSelectedTrialButton",
@@ -254,6 +256,8 @@ function wireEvents() {
   elements.trialList.addEventListener("click", handleTrialListClick);
   elements.trialRows.addEventListener("click", handleTrialRowsClick);
   elements.deleteSelectedTrialButton.addEventListener("click", deleteSelectedTrial);
+  elements.trendCanvas.addEventListener("pointermove", handleTrendPointerMove);
+  elements.trendCanvas.addEventListener("pointerleave", clearTrendHover);
   elements.customerForm.addEventListener("submit", (event) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
@@ -442,17 +446,20 @@ function renderAll(force) {
   elements.speedRawValue.textContent = powerSensor?.speedRaw == null ? "raw --" : `raw ${Math.round(powerSensor.speedRaw)}`;
   elements.gradeValue.textContent = displayGrade == null ? "--%" : `${displayGrade.toFixed(1)}%`;
   elements.gearValue.textContent = displayGear == null ? "--" : String(Math.round(displayGear));
-  const trendView = getTrendView();
-  elements.trendTitle.textContent = trendView.title;
-  elements.trendStatus.textContent = trendView.status;
-
-  drawTrend(elements.trendCanvas, trendView.history);
+  renderTrendPanel();
   renderPedalAnalysis();
   renderSensors();
   renderSensorConnectStatus();
   renderPowerbahnControl();
   renderResistanceControl();
   renderTrials();
+}
+
+function renderTrendPanel() {
+  const trendView = getTrendView();
+  elements.trendTitle.textContent = trendView.title;
+  elements.trendStatus.textContent = trendView.status;
+  drawTrend(elements.trendCanvas, trendView.history, state.trendHover);
 }
 
 function updateMetricGauge(element, value, max) {
@@ -470,23 +477,28 @@ function average(items, key) {
   return items.reduce((sum, item) => sum + item[key], 0) / items.length;
 }
 
-function drawTrend(canvas, history) {
+function drawTrend(canvas, history, hover = null) {
   const ctx = prepareCanvas(canvas);
   const { width, height } = getCanvasSize(canvas);
   ctx.clearRect(0, 0, width, height);
+  const bottomPadding = height < 80 ? 20 : 38;
   const chart = {
     left: 48,
-    right: width - 16,
+    right: width - 18,
     top: 14,
-    bottom: height - 24,
+    bottom: Math.max(20, height - bottomPadding),
   };
+  if (chart.bottom <= chart.top) chart.bottom = chart.top + 1;
   const maxPower = getGraphPowerScale(history);
   drawGrid(ctx, chart, maxPower);
+  if (history.length >= 2) {
+    drawTrendSeries(ctx, chart, history, "power", maxPower, "#2d6cdf");
+    drawTrendSeries(ctx, chart, history, "cadence", GRAPH_CADENCE_SCALE_RPM, "#d96c2c");
+    drawTrendSeries(ctx, chart, history, "speed", GRAPH_SPEED_SCALE_MPH, "#178f62");
+  }
+  drawTrendTimeBar(ctx, chart, history, height);
   drawTrendLatestValues(ctx, chart, history.at(-1));
-  if (history.length < 2) return;
-  drawTrendSeries(ctx, chart, history, "power", maxPower, "#2d6cdf");
-  drawTrendSeries(ctx, chart, history, "cadence", GRAPH_CADENCE_SCALE_RPM, "#d96c2c");
-  drawTrendSeries(ctx, chart, history, "speed", GRAPH_SPEED_SCALE_MPH, "#178f62");
+  drawTrendHover(ctx, chart, history, hover, maxPower);
 }
 
 function getGraphPowerScale(history) {
@@ -535,6 +547,161 @@ function drawTrendSeries(ctx, chart, history, key, scale, color) {
   ctx.stroke();
 }
 
+function drawTrendTimeBar(ctx, chart, history, height) {
+  const barY = Math.min(height - 10, chart.bottom + (height < 80 ? 12 : 20));
+  ctx.strokeStyle = getCssColor("--line");
+  ctx.fillStyle = getCssColor("--muted");
+  ctx.lineWidth = 1;
+  ctx.font = "11px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
+
+  ctx.beginPath();
+  ctx.moveTo(chart.left, barY);
+  ctx.lineTo(chart.right, barY);
+  ctx.stroke();
+
+  if (!history.length) return;
+  const firstSample = history[0];
+  const ticks = history.length === 1 ? [0] : [0, 0.5, 1];
+  ticks.forEach((ratio) => {
+    const index = Math.round(ratio * (history.length - 1));
+    const x = history.length === 1
+      ? chart.left
+      : chart.left + ratio * (chart.right - chart.left);
+    const label = formatTrendSampleElapsed(history[index], firstSample, index);
+    ctx.beginPath();
+    ctx.moveTo(x, barY - 4);
+    ctx.lineTo(x, barY + 4);
+    ctx.stroke();
+    ctx.textAlign = ratio <= 0 ? "left" : ratio >= 1 ? "right" : "center";
+    ctx.textBaseline = "top";
+    ctx.fillText(label, x, barY + 6);
+  });
+}
+
+function drawTrendHover(ctx, chart, history, hover, maxPower) {
+  if (!history.length || !hover) return;
+  const hovered = getTrendHoverSample(chart, history, hover.x);
+  if (!hovered) return;
+  const { sample, index, x } = hovered;
+
+  ctx.save();
+  ctx.strokeStyle = getCssColor("--ink");
+  ctx.globalAlpha = 0.45;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(x, chart.top);
+  ctx.lineTo(x, chart.bottom);
+  ctx.stroke();
+  ctx.restore();
+
+  drawTrendHoverPoint(ctx, chart, x, sample.power, maxPower, "#2d6cdf");
+  drawTrendHoverPoint(ctx, chart, x, sample.cadence, GRAPH_CADENCE_SCALE_RPM, "#d96c2c");
+  drawTrendHoverPoint(ctx, chart, x, sample.speed, GRAPH_SPEED_SCALE_MPH, "#178f62");
+
+  const labels = [
+    `t ${formatTrendSampleElapsed(sample, history[0], index)}`,
+    `${formatWholeNumber(sample.power)} W`,
+    `${formatWholeNumber(sample.cadence)} RPM`,
+    `${sample.speed == null ? "--" : sample.speed.toFixed(1)} mph`,
+  ];
+  drawTrendTooltip(ctx, chart, x, labels);
+}
+
+function drawTrendHoverPoint(ctx, chart, x, value, scale, color) {
+  const clampedValue = Math.max(0, Math.min(scale, value ?? 0));
+  const y = chart.bottom - (clampedValue / scale) * (chart.bottom - chart.top);
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(x, y, 4, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = getCssColor("--panel");
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+}
+
+function drawTrendTooltip(ctx, chart, x, labels) {
+  ctx.font = "12px system-ui, -apple-system, BlinkMacSystemFont, sans-serif";
+  const paddingX = 10;
+  const paddingY = 7;
+  const lineHeight = 16;
+  const width = Math.max(...labels.map((label) => ctx.measureText(label).width)) + paddingX * 2;
+  const height = labels.length * lineHeight + paddingY * 2;
+  const left = Math.max(chart.left, Math.min(chart.right - width, x + 12));
+  const top = chart.top + 8;
+
+  ctx.fillStyle = getCssColor("--panel");
+  ctx.strokeStyle = getCssColor("--line");
+  ctx.lineWidth = 1;
+  drawRoundedRect(ctx, left, top, width, height, 8);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = getCssColor("--ink");
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+  labels.forEach((label, index) => {
+    ctx.fillText(label, left + paddingX, top + paddingY + index * lineHeight);
+  });
+}
+
+function drawRoundedRect(ctx, x, y, width, height, radius) {
+  const safeRadius = Math.min(radius, width / 2, height / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + safeRadius, y);
+  ctx.lineTo(x + width - safeRadius, y);
+  ctx.quadraticCurveTo(x + width, y, x + width, y + safeRadius);
+  ctx.lineTo(x + width, y + height - safeRadius);
+  ctx.quadraticCurveTo(x + width, y + height, x + width - safeRadius, y + height);
+  ctx.lineTo(x + safeRadius, y + height);
+  ctx.quadraticCurveTo(x, y + height, x, y + height - safeRadius);
+  ctx.lineTo(x, y + safeRadius);
+  ctx.quadraticCurveTo(x, y, x + safeRadius, y);
+  ctx.closePath();
+}
+
+function getTrendHoverSample(chart, history, x) {
+  if (!history.length) return null;
+  if (history.length === 1) {
+    return { sample: history[0], index: 0, x: chart.left };
+  }
+
+  const ratio = Math.max(0, Math.min(1, (x - chart.left) / (chart.right - chart.left)));
+  const index = Math.round(ratio * (history.length - 1));
+  const sampleX = chart.left + (index / (history.length - 1)) * (chart.right - chart.left);
+  return {
+    sample: history[index],
+    index,
+    x: sampleX,
+  };
+}
+
+function formatTrendSampleElapsed(sample, firstSample, fallbackIndex = 0) {
+  const startTime = getTrendSampleTime(firstSample);
+  const sampleTime = getTrendSampleTime(sample);
+  if (!Number.isFinite(startTime) || !Number.isFinite(sampleTime)) {
+    return `#${fallbackIndex + 1}`;
+  }
+  return formatElapsedSeconds(Math.max(0, Math.round((sampleTime - startTime) / 1000)));
+}
+
+function getTrendSampleTime(sample) {
+  if (!sample) return null;
+  if (sample.at instanceof Date) return sample.at.getTime();
+  if (typeof sample.at === "number") return sample.at;
+  const time = new Date(sample.at).getTime();
+  return Number.isNaN(time) ? null : time;
+}
+
+function formatElapsedSeconds(totalSeconds) {
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) {
+    return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  }
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
 function drawTrendLatestValues(ctx, chart, latest) {
   if (!latest) return;
   const items = [
@@ -558,12 +725,18 @@ function drawTrendLatestValues(ctx, chart, latest) {
 
 function updatePedalAnalysis(analysis) {
   state.pedalAnalysis = analysis;
-  recordTrialPedalSnapshot(analysis);
+  if (hasUsefulPedalProfile(analysis)) {
+    state.lastTorquePedalAnalysis = analysis;
+    recordTrialPedalSnapshot(analysis);
+  } else if (!state.lastTorquePedalAnalysis) {
+    recordTrialPedalSnapshot(analysis);
+  }
   renderPedalAnalysis();
 }
 
 function renderPedalAnalysis() {
-  const analysis = state.pedalAnalysis ?? getLivePedalFallbackAnalysis();
+  const analysis = getDisplayPedalAnalysis();
+  const usingCachedProfile = analysis && analysis === state.lastTorquePedalAnalysis && state.pedalAnalysis !== analysis;
   const frozen = Boolean(analysis && isPedalAnalysisFrozen());
   drawPedalDynamics(elements.pedalCanvas, analysis);
 
@@ -576,7 +749,7 @@ function renderPedalAnalysis() {
     return;
   }
 
-  elements.pedalStatus.textContent = getPedalAnalysisStatus(analysis, frozen);
+  elements.pedalStatus.textContent = getPedalAnalysisStatus(analysis, frozen, usingCachedProfile);
   if (analysis.fallback) {
     elements.pedalBalanceValue.textContent = "-- / --";
     elements.pedalPeakValue.textContent = `${analysis.crankAngleSource === "estimated" ? "est " : ""}crank ${Math.round(analysis.crankAngle)}°`;
@@ -593,6 +766,21 @@ function renderPedalAnalysis() {
   elements.pedalAverageValue.textContent = Math.round(analysis.averageTorque).toString();
 }
 
+function getDisplayPedalAnalysis() {
+  if (hasUsefulPedalProfile(state.pedalAnalysis)) return state.pedalAnalysis;
+  if (state.serialPower.connected && hasUsefulPedalProfile(state.lastTorquePedalAnalysis)) {
+    return state.lastTorquePedalAnalysis;
+  }
+  return state.pedalAnalysis ?? getLivePedalFallbackAnalysis();
+}
+
+function hasUsefulPedalProfile(analysis) {
+  if (!Array.isArray(analysis?.profile) || analysis.profile.length !== PEDAL_PROFILE_SIZE) return false;
+  if (Number.isFinite(analysis.peakTorque) && analysis.peakTorque > 0) return true;
+  if (Number.isFinite(analysis.leftShare) && Number.isFinite(analysis.rightShare)) return true;
+  return analysis.profile.some((value) => Number.isFinite(value) && value > 0);
+}
+
 function formatPedalBalance(analysis) {
   if (!Number.isFinite(analysis?.leftShare) || !Number.isFinite(analysis?.rightShare)) {
     return "-- / --";
@@ -600,7 +788,7 @@ function formatPedalBalance(analysis) {
   return `${Math.round(analysis.leftShare)} / ${Math.round(analysis.rightShare)}`;
 }
 
-function getPedalAnalysisStatus(analysis, frozen) {
+function getPedalAnalysisStatus(analysis, frozen, usingCachedProfile = false) {
   if (analysis.fallback) {
     const crankSource = analysis.crankAngleSource === "estimated" ? "estimated crank angle" : "live crank angle";
     const status = `${crankSource} ${Math.round(analysis.crankAngle)}° · torque pending`;
@@ -609,7 +797,8 @@ function getPedalAnalysisStatus(analysis, frozen) {
   const status = analysis.complete
     ? `${analysis.referenceSource} ${analysis.splitAngle}° · rev ${analysis.rotationCount}`
     : `collecting ${analysis.rangeCount}/6`;
-  return frozen ? `frozen at 0 RPM · ${status}` : status;
+  const prefix = frozen ? "frozen at 0 RPM" : usingCachedProfile ? "last torque profile" : null;
+  return prefix ? `${prefix} · ${status}` : status;
 }
 
 function getLivePedalFallbackAnalysis() {
@@ -808,6 +997,20 @@ function getCanvasSize(canvas) {
   };
 }
 
+function handleTrendPointerMove(event) {
+  const rect = elements.trendCanvas.getBoundingClientRect();
+  state.trendHover = {
+    x: Math.max(0, Math.min(rect.width, event.clientX - rect.left)),
+  };
+  renderTrendPanel();
+}
+
+function clearTrendHover() {
+  if (!state.trendHover) return;
+  state.trendHover = null;
+  renderTrendPanel();
+}
+
 function toggleTrialRecording() {
   if (state.activeTrial) {
     stopTrialRecording();
@@ -864,7 +1067,8 @@ function startTrialRecording() {
 
   const latestSample = state.history.at(-1);
   if (latestSample) recordTrialSample(latestSample);
-  if (state.pedalAnalysis) recordTrialPedalSnapshot(state.pedalAnalysis);
+  const pedalAnalysis = getDisplayPedalAnalysis();
+  if (pedalAnalysis) recordTrialPedalSnapshot(pedalAnalysis);
   startTrialClock();
   renderAll(true);
 }
@@ -925,6 +1129,7 @@ function updateTrialNotes() {
 function clearTrialSelection() {
   state.selectedTrialId = null;
   state.trialDropdownOpen = false;
+  state.trendHover = null;
   if (!state.activeTrial) state.trialNoteDraft = elements.trialNotesInput.value;
   renderAll(true);
 }
@@ -943,6 +1148,7 @@ function handleTrialListClick(event) {
   if (!button || state.activeTrial) return;
   state.selectedTrialId = button.dataset.trialId;
   state.trialDropdownOpen = false;
+  state.trendHover = null;
   renderAll(true);
 }
 
@@ -952,6 +1158,7 @@ function handleTrialRowsClick(event) {
   if (!row || state.activeTrial) return;
   state.selectedTrialId = row.dataset.trialId;
   state.trialDropdownOpen = false;
+  state.trendHover = null;
   renderAll(true);
 }
 
@@ -963,6 +1170,7 @@ function deleteSelectedTrial() {
   state.trials = state.trials.filter((item) => item.id !== trial.id);
   state.selectedTrialId = null;
   state.trialDropdownOpen = false;
+  state.trendHover = null;
   state.trialNoteDraft = "";
   saveRecordedTrials();
   renderAll(true);
@@ -2121,7 +2329,7 @@ function renderTrials() {
   elements.trialAvgPower.textContent = formatTrialPower(summary?.power);
   elements.trialAvgCadence.textContent = formatTrialCadence(summary?.cadence);
   elements.trialAvgSpeed.textContent = formatTrialSpeed(summary?.speed);
-  elements.trialPedalAverage.textContent = formatTrialPedalAverage(summary?.pedal, { compact: true });
+  elements.trialElapsedValue.textContent = focusedTrial ? formatTrialDuration(focusedTrial) : "0:00";
   renderTrialReview(focusedTrial, summary);
 
   renderTrialList();
