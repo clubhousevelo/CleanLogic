@@ -777,7 +777,8 @@ main {
 }
 
 .record-dot,
-.stop-square {
+.stop-square,
+.countdown-number {
   display: block;
   width: 18px;
   height: 18px;
@@ -793,10 +794,28 @@ main {
   border-radius: 4px;
 }
 
+.countdown-number {
+  display: none;
+  width: auto;
+  min-width: 22px;
+  height: auto;
+  background: transparent;
+  color: currentColor;
+  font-size: 22px;
+  font-weight: 900;
+  line-height: 1;
+}
+
 .trial-record-button.recording {
   border-color: color-mix(in srgb, var(--accent-2) 64%, var(--line));
   background: var(--accent-2);
   color: #fff;
+}
+
+.trial-record-button.countdown {
+  border-color: color-mix(in srgb, var(--accent-2) 64%, var(--line));
+  background: color-mix(in srgb, var(--accent-2) 12%, var(--panel));
+  color: var(--accent-2);
 }
 
 .trial-record-button.recording .record-dot {
@@ -804,6 +823,15 @@ main {
 }
 
 .trial-record-button.recording .stop-square {
+  display: block;
+}
+
+.trial-record-button.countdown .record-dot,
+.trial-record-button.countdown .stop-square {
+  display: none;
+}
+
+.trial-record-button.countdown .countdown-number {
   display: block;
 }
 

@@ -61,6 +61,7 @@ const PEDAL_PROFILE_SIZE = 360;
 const MAX_SAVED_TRIALS = 20;
 const MAX_TRIAL_SAMPLES = 3600;
 const MAX_TRIAL_PEDAL_SNAPSHOTS = 600;
+const TRIAL_COUNTDOWN_SECONDS = 5;
 
 const BLUETOOTH_SENSOR_PROFILES = {
   [SENSOR_TYPES.power]: {
@@ -126,6 +127,8 @@ const state = {
   trialDropdownOpen: false,
   trialNoteDraft: "",
   activeTrial: null,
+  trialCountdownRemaining: null,
+  trialCountdownTimer: null,
   trialClockTimer: null,
   customers: [
     { firstName: "Sample", lastName: "Rider", email: "sample@local.test", phone: "555-0100" },
@@ -177,6 +180,7 @@ function bindElements() {
     "powerbahnPureLogicFixedPowerState",
     "resetPowerbahnResistanceButton",
     "trialRecordButton",
+    "trialCountdownValue",
     "clearTrialSelectionButton",
     "trialNotesInput",
     "trialAvgPower",
@@ -809,7 +813,37 @@ function toggleTrialRecording() {
     stopTrialRecording();
     return;
   }
-  startTrialRecording();
+  if (state.trialCountdownTimer) {
+    cancelTrialCountdown();
+    return;
+  }
+  startTrialCountdown();
+}
+
+function startTrialCountdown() {
+  cancelTrialCountdown({ render: false });
+  state.selectedTrialId = null;
+  state.trialDropdownOpen = false;
+  state.trialCountdownRemaining = TRIAL_COUNTDOWN_SECONDS;
+  renderAll(true);
+  state.trialCountdownTimer = window.setInterval(() => {
+    state.trialCountdownRemaining -= 1;
+    if (state.trialCountdownRemaining <= 0) {
+      cancelTrialCountdown({ render: false });
+      startTrialRecording();
+      return;
+    }
+    renderTrials();
+  }, 1000);
+}
+
+function cancelTrialCountdown({ render = true } = {}) {
+  if (state.trialCountdownTimer) {
+    window.clearInterval(state.trialCountdownTimer);
+  }
+  state.trialCountdownTimer = null;
+  state.trialCountdownRemaining = null;
+  if (render) renderAll(true);
 }
 
 function startTrialRecording() {
@@ -896,6 +930,8 @@ function clearTrialSelection() {
 }
 
 function handleTrialListClick(event) {
+  if (state.trialCountdownTimer) return;
+
   const toggle = event.target.closest("[data-trial-toggle]");
   if (toggle && !state.activeTrial) {
     state.trialDropdownOpen = !state.trialDropdownOpen;
@@ -911,6 +947,7 @@ function handleTrialListClick(event) {
 }
 
 function handleTrialRowsClick(event) {
+  if (state.trialCountdownTimer) return;
   const row = event.target.closest("[data-trial-id]");
   if (!row || state.activeTrial) return;
   state.selectedTrialId = row.dataset.trialId;
@@ -2064,11 +2101,18 @@ function renderTrials() {
   const summary = getTrialSummary(focusedTrial);
   const selectedTrial = getSelectedTrial();
   const activeTrial = state.activeTrial;
+  const countdownActive = Number.isFinite(state.trialCountdownRemaining);
+  const countdownText = countdownActive ? String(state.trialCountdownRemaining) : String(TRIAL_COUNTDOWN_SECONDS);
 
   elements.trialRecordButton.classList.toggle("recording", Boolean(activeTrial));
-  elements.trialRecordButton.setAttribute("aria-label", activeTrial ? "Stop trial" : "Record trial");
-  elements.trialRecordButton.title = activeTrial ? "Stop trial" : "Record trial";
-  elements.clearTrialSelectionButton.disabled = !selectedTrial;
+  elements.trialRecordButton.classList.toggle("countdown", countdownActive);
+  elements.trialRecordButton.setAttribute(
+    "aria-label",
+    activeTrial ? "Stop trial" : countdownActive ? `Cancel trial countdown, ${countdownText}` : "Record trial",
+  );
+  elements.trialRecordButton.title = activeTrial ? "Stop trial" : countdownActive ? "Cancel countdown" : "Record trial";
+  elements.trialCountdownValue.textContent = countdownText;
+  elements.clearTrialSelectionButton.disabled = !selectedTrial || countdownActive;
 
   if (document.activeElement !== elements.trialNotesInput) {
     elements.trialNotesInput.value = focusedTrial?.notes ?? state.trialNoteDraft;
@@ -2087,7 +2131,7 @@ function renderTrials() {
 function renderTrialReview(trial, summary) {
   const pedal = summary?.pedal;
   const selectedTrial = getSelectedTrial();
-  elements.deleteSelectedTrialButton.disabled = !selectedTrial || Boolean(state.activeTrial);
+  elements.deleteSelectedTrialButton.disabled = !selectedTrial || Boolean(state.activeTrial) || Boolean(state.trialCountdownTimer);
   elements.trialReviewStatus.textContent = trial
     ? `${trial.name} · ${formatTrialDate(trial.startedAt)} · ${formatTrialDuration(trial)}`
     : "Select a trial";
@@ -2109,12 +2153,14 @@ function renderTrialReview(trial, summary) {
 
 function renderTrialList() {
   const currentTrial = state.activeTrial ?? getSelectedTrial() ?? getLatestTrial();
+  const countdownActive = Number.isFinite(state.trialCountdownRemaining);
 
   if (!state.trials.length) {
     elements.trialList.innerHTML = currentTrial
       ? renderCurrentTrialCard(currentTrial, {
         summary: getTrialSummary(currentTrial),
         active: true,
+        countdown: countdownActive,
         dropdownOpen: false,
       })
       : '<div class="empty-state">No trials recorded yet</div>';
@@ -2131,6 +2177,7 @@ function renderTrialList() {
       ${renderCurrentTrialCard(currentTrial, {
         summary,
         active: Boolean(state.activeTrial),
+        countdown: countdownActive,
         dropdownOpen: state.trialDropdownOpen,
       })}
       ${dropdown}
@@ -2138,15 +2185,17 @@ function renderTrialList() {
   `;
 }
 
-function renderCurrentTrialCard(trial, { summary, active, dropdownOpen }) {
-  const label = active ? "Recording" : state.selectedTrialId === trial.id ? "Selected trial" : "Latest trial";
+function renderCurrentTrialCard(trial, { summary, active, countdown, dropdownOpen }) {
+  const label = countdown
+    ? `Starting in ${state.trialCountdownRemaining}`
+    : active ? "Recording" : state.selectedTrialId === trial.id ? "Selected trial" : "Latest trial";
   return `
     <button
       class="trial-card trial-current-card${state.selectedTrialId === trial.id ? " selected" : ""}"
       data-trial-toggle
       type="button"
       aria-expanded="${dropdownOpen ? "true" : "false"}"
-      ${active ? "disabled" : ""}
+      ${active || countdown ? "disabled" : ""}
     >
       <span>${label}</span>
       <strong>${escapeHtml(trial.name)} · ${formatTrialPower(summary?.power)} · ${formatTrialCadence(summary?.cadence)}</strong>
