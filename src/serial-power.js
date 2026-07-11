@@ -604,8 +604,11 @@ function analyzeTorqueProfile(profile, { complete, rangeCount, rotationCount, cr
     referenceSource: "torque minimum",
     leftAverage: averageNumbers(leftValues),
     rightAverage: averageNumbers(rightValues),
-    leftShare: totalWork ? (leftWork / totalWork) * 100 : null,
-    rightShare: totalWork ? (rightWork / totalWork) * 100 : null,
+    // Keep balance numeric while the six torque ranges are filling. The UI
+    // can then transition from 0 / 0 to the measured split instead of
+    // treating the partial profile as missing data and showing -- / --.
+    leftShare: totalWork ? (leftWork / totalWork) * 100 : 0,
+    rightShare: totalWork ? (rightWork / totalWork) * 100 : 0,
     updatedAt: new Date(),
   };
 }
