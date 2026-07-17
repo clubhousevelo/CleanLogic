@@ -4,6 +4,7 @@ const FRAME_END = 0xf2;
 const DASHBOARD_POLL_INTERVAL_MS = 300;
 const TORQUE_POLL_INTERVAL_MS = 3000;
 const OPEN_SETTLE_MS = 600;
+const SERIAL_WRITE_DRAIN_TIMEOUT_MS = 750;
 const SPEED_MPH_PER_RAW_UNIT = 0.621371 / 100;
 const BRAKE_RPM_TO_CADENCE_DIVISOR = 15.394;
 const GRADE_UPDATE_STATUS = 0x4c;
@@ -127,9 +128,17 @@ export function createSerialPowerController() {
   return {
     supported,
     port: null,
+    lastPort: null,
+    openOptions: null,
     reader: null,
     writer: null,
     connected: false,
+    connectedAt: null,
+    connectionToken: 0,
+    autoReconnect: false,
+    reconnecting: false,
+    reconnectPromise: null,
+    portClosePromise: null,
     status: supported ? "Disconnected" : "Web Serial unavailable",
     lastError: null,
     lastPacketHex: null,
@@ -145,6 +154,8 @@ export function createSerialPowerController() {
     startupStep: null,
     targetGrade: 0,
     targetGear: 0,
+    gradeTargetExplicit: false,
+    gearTargetExplicit: false,
     activeGrade: null,
     activeGear: null,
     targetFixedPower: 150,
@@ -170,6 +181,7 @@ export function createSerialPowerController() {
     onMeasurement: null,
     onTorque: null,
     onStatus: null,
+    onConnectionChange: null,
   };
 }
 
@@ -185,9 +197,20 @@ export async function connectSerialPower(controller, {
     throw new Error("Web Serial is not available. Use Chrome or Edge over HTTPS or localhost.");
   }
 
-  await disconnectSerialPower(controller);
-  resetSerialStats(controller);
   const selectedPort = port ?? await navigator.serial.requestPort();
+  await disconnectSerialPower(controller, { preserveReconnect: true });
+  await controller.portClosePromise?.catch(() => undefined);
+  controller.portClosePromise = null;
+  resetSerialStats(controller);
+  controller.lastPort = selectedPort;
+  controller.openOptions = {
+    portName,
+    baudRate,
+    flowControl,
+    dataTerminalReady,
+    requestToSend,
+  };
+  controller.autoReconnect = true;
   controller.portInfo = getSerialPortLabel(selectedPort, 0);
   const portLabel = portName ? ` (${portName}, ${baudRate} baud)` : ` (${baudRate} baud)`;
 
@@ -222,9 +245,13 @@ export async function connectSerialPower(controller, {
   controller.writer = selectedPort.writable.getWriter();
   controller.reader = selectedPort.readable.getReader();
   controller.connected = true;
+  controller.connectedAt = new Date();
+  controller.connectionToken += 1;
+  const connectionToken = controller.connectionToken;
   controller.lastError = null;
+  notifyConnectionChange(controller, true, { reason: "connected" });
 
-  controller.readLoop = readSerialFrames(controller);
+  controller.readLoop = readSerialFrames(controller, controller.reader, connectionToken);
   controller.pollTimer = window.setInterval(() => {
     writeFrame(controller, POWERBAHN_DASHBOARD_POLL).catch((error) => {
       controller.lastError = error.message;
@@ -239,26 +266,35 @@ export async function connectSerialPower(controller, {
     });
   }, TORQUE_POLL_INTERVAL_MS);
 
-  await delay(OPEN_SETTLE_MS);
-  await sendStartupSequence(controller);
-  notifyDebug(controller);
-  setSerialStatus(controller, `Connected to Powerbahn serial power${portLabel}`);
+  try {
+    await delay(OPEN_SETTLE_MS);
+    await sendStartupSequence(controller);
+    notifyDebug(controller);
+    setSerialStatus(controller, `Connected to Powerbahn serial power${portLabel}`);
+  } catch (error) {
+    if (controller.connectionToken === connectionToken && controller.connected) {
+      markSerialTransportLost(controller, error, {
+        connectionToken,
+        reader: controller.reader,
+        writer: controller.writer,
+        port: controller.port,
+      });
+    }
+    throw error;
+  }
 }
 
 export async function setSerialGrade(controller, grade) {
   const targetGrade = clampGrade(grade);
   controller.targetGrade = targetGrade;
+  controller.gradeTargetExplicit = true;
 
   if (!controller.connected || !controller.writer) {
     setSerialStatus(controller, `Grade staged at ${targetGrade}%`);
     return;
   }
 
-  const rawGrade = Math.round(targetGrade * 10);
-  await writeFrame(controller, createLongCommandFrame(
-    0x28,
-    lowHighBytes(rawGrade, GRADE_UPDATE_STATUS),
-  ));
+  await sendSerialGradeCommand(controller, targetGrade);
   controller.activeGrade = targetGrade;
   setSerialStatus(controller, `Grade set to ${targetGrade}%`);
 }
@@ -266,13 +302,14 @@ export async function setSerialGrade(controller, grade) {
 export async function setSerialGear(controller, gear) {
   const targetGear = clampByte(gear);
   controller.targetGear = targetGear;
+  controller.gearTargetExplicit = true;
 
   if (!controller.connected || !controller.writer) {
     setSerialStatus(controller, `Gear staged at ${targetGear}`);
     return;
   }
 
-  await writeFrame(controller, createLongCommandFrame(0x29, [targetGear]));
+  await sendSerialGearCommand(controller, targetGear);
   controller.activeGear = targetGear;
   setSerialStatus(controller, `Gear set to ${targetGear}`);
 }
@@ -330,7 +367,66 @@ export function getSerialPortLabel(port, index) {
   return parts.length ? parts.join(" / ") : `Granted port ${index + 1}`;
 }
 
-export async function disconnectSerialPower(controller) {
+export function isSerialPowerStale(controller, maxAgeMs = 2500) {
+  if (!controller.autoReconnect || !controller.lastPort) return false;
+  if (!controller.connected) return true;
+
+  const lastActivity = controller.lastFrameAt?.getTime() ?? controller.connectedAt?.getTime();
+  return lastActivity == null || Date.now() - lastActivity > maxAgeMs;
+}
+
+export function handleSerialPortDisconnect(controller, port) {
+  if (!controller.connected) return false;
+  if (port && port !== controller.port && port !== controller.lastPort) return false;
+
+  return markSerialTransportLost(controller, new Error("Powerbahn USB disconnected"), {
+    connectionToken: controller.connectionToken,
+    reader: controller.reader,
+    writer: controller.writer,
+    port: controller.port ?? port,
+  });
+}
+
+export function reconnectSerialPower(controller, { reason = "connection recovery", force = false } = {}) {
+  if (!controller.supported || !controller.autoReconnect || !controller.lastPort || !controller.openOptions) {
+    return Promise.resolve(false);
+  }
+  if (controller.reconnecting) return controller.reconnectPromise ?? Promise.resolve(false);
+  if (!force && controller.connected && !isSerialPowerStale(controller)) {
+    return Promise.resolve(true);
+  }
+
+  const selectedPort = controller.lastPort;
+  if (selectedPort.connected === false) {
+    setSerialStatus(controller, "Waiting for Powerbahn USB to reconnect");
+    return Promise.resolve(false);
+  }
+
+  controller.reconnecting = true;
+  setSerialStatus(controller, `Reconnecting Powerbahn serial (${reason})`);
+  const reconnectPromise = (async () => {
+    try {
+      await connectSerialPower(controller, {
+        port: selectedPort,
+        ...controller.openOptions,
+      });
+      return true;
+    } catch (error) {
+      controller.lastError = error.message;
+      setSerialStatus(controller, `Powerbahn reconnect waiting: ${error.message}`);
+      return false;
+    } finally {
+      controller.reconnecting = false;
+      controller.reconnectPromise = null;
+    }
+  })();
+
+  controller.reconnectPromise = reconnectPromise;
+  return reconnectPromise;
+}
+
+export async function disconnectSerialPower(controller, { preserveReconnect = false } = {}) {
+  if (!preserveReconnect) controller.autoReconnect = false;
   if (controller.pollTimer) window.clearInterval(controller.pollTimer);
   if (controller.debugTimer) window.clearInterval(controller.debugTimer);
   if (controller.torquePollTimer) window.clearInterval(controller.torquePollTimer);
@@ -342,6 +438,9 @@ export async function disconnectSerialPower(controller) {
   const writer = controller.writer;
   const port = controller.port;
   const readLoop = controller.readLoop;
+  const writeQueue = controller.writeQueue;
+  const wasActive = Boolean(controller.connected || reader || writer || port);
+  controller.connectionToken += 1;
   controller.reader = null;
   controller.writer = null;
   controller.port = null;
@@ -360,6 +459,15 @@ export async function disconnectSerialPower(controller) {
   }
 
   try {
+    await Promise.race([
+      writeQueue.catch(() => undefined),
+      delay(SERIAL_WRITE_DRAIN_TIMEOUT_MS),
+    ]);
+  } catch {
+    // A sleeping device can leave a write pending; closing the port will finish cleanup.
+  }
+
+  try {
     writer?.releaseLock?.();
   } catch {
     // Best-effort cleanup for partially opened ports.
@@ -372,24 +480,34 @@ export async function disconnectSerialPower(controller) {
       // Some browsers throw if the device was physically unplugged first.
     }
   }
+  await controller.portClosePromise?.catch(() => undefined);
+  controller.portClosePromise = null;
 
   controller.connected = false;
   controller.activeGrade = null;
   controller.activeGear = null;
   controller.activeFixedPower = null;
   controller.activePureLogicFixedPower = null;
-  setSerialStatus(controller, controller.supported ? "Disconnected" : "Web Serial unavailable");
+  controller.connectedAt = null;
+  if (wasActive) {
+    setSerialStatus(controller, controller.supported ? "Disconnected" : "Web Serial unavailable");
+    notifyConnectionChange(controller, false, { reason: "disconnected" });
+  }
 }
 
-async function readSerialFrames(controller) {
+async function readSerialFrames(controller, reader, connectionToken) {
   const frame = [];
   let inFrame = false;
-  const reader = controller.reader;
+  let readError = null;
+  let streamClosed = false;
 
   try {
-    while (controller.reader === reader) {
+    while (controller.reader === reader && controller.connectionToken === connectionToken) {
       const { value, done } = await reader.read();
-      if (done) break;
+      if (done) {
+        streamClosed = true;
+        break;
+      }
       if (!value) continue;
       controller.byteCount += value.byteLength;
       notifyDebug(controller);
@@ -414,30 +532,115 @@ async function readSerialFrames(controller) {
       }
     }
   } catch (error) {
-    if (controller.connected) {
-      controller.lastError = error.message;
-      setSerialStatus(controller, `Serial read failed: ${error.message}`);
-    }
+    readError = error;
   } finally {
     try {
       reader?.releaseLock?.();
     } catch {
       // The lock may already be released after cancellation.
     }
+    if (
+      controller.reader === reader
+      && controller.connectionToken === connectionToken
+      && controller.connected
+    ) {
+      const error = readError ?? (streamClosed ? new Error("Serial stream closed") : new Error("Serial reader stopped"));
+      markSerialTransportLost(controller, error, {
+        connectionToken,
+        reader,
+        writer: controller.writer,
+        port: controller.port,
+      });
+    }
   }
 }
 
 async function writeFrame(controller, frame) {
-  if (!controller.writer) throw new Error("Serial port is not writable.");
+  if (!controller.writer || !controller.connected) throw new Error("Serial port is not writable.");
+  const writer = controller.writer;
+  const connectionToken = controller.connectionToken;
   controller.writeQueue = controller.writeQueue
     .catch(() => undefined)
     .then(async () => {
-      if (!controller.writer) throw new Error("Serial port is not writable.");
-      await controller.writer.write(frame);
-      controller.writeCount += 1;
-      notifyDebug(controller);
+      if (
+        !controller.writer
+        || controller.writer !== writer
+        || !controller.connected
+        || controller.connectionToken !== connectionToken
+      ) {
+        throw new Error("Serial port is not writable.");
+      }
+      try {
+        await writer.write(frame);
+        controller.writeCount += 1;
+        notifyDebug(controller);
+      } catch (error) {
+        markSerialTransportLost(controller, error, {
+          connectionToken,
+          reader: controller.reader,
+          writer,
+          port: controller.port,
+        });
+        throw error;
+      }
     });
   return controller.writeQueue;
+}
+
+function markSerialTransportLost(controller, error, {
+  connectionToken,
+  reader,
+  writer,
+  port,
+} = {}) {
+  if (connectionToken !== controller.connectionToken) return false;
+  if (!controller.connected && controller.port !== port && controller.reader !== reader) return false;
+
+  const wasConnected = controller.connected;
+  controller.lastPort = port ?? controller.lastPort;
+  controller.pollTimer && window.clearInterval(controller.pollTimer);
+  controller.debugTimer && window.clearInterval(controller.debugTimer);
+  controller.torquePollTimer && window.clearInterval(controller.torquePollTimer);
+  controller.pollTimer = null;
+  controller.debugTimer = null;
+  controller.torquePollTimer = null;
+  controller.connectionToken += 1;
+  controller.reader = null;
+  controller.writer = null;
+  controller.port = null;
+  controller.readLoop = null;
+  controller.connected = false;
+  controller.connectedAt = null;
+  controller.activeGrade = null;
+  controller.activeGear = null;
+  controller.activeFixedPower = null;
+  controller.activePureLogicFixedPower = null;
+  controller.lastError = error?.message ?? "Serial connection lost";
+
+  try {
+    writer?.releaseLock?.();
+  } catch {
+    // Best-effort cleanup for a writer that failed during sleep or unplug.
+  }
+  try {
+    Promise.resolve(reader?.cancel?.()).catch(() => undefined);
+  } catch {
+    // The reader can reject cancellation after the browser releases its stream.
+  }
+  try {
+    controller.portClosePromise = Promise.resolve(port?.close?.()).catch(() => undefined);
+  } catch {
+    controller.portClosePromise = Promise.resolve();
+  }
+
+  if (wasConnected) {
+    setSerialStatus(controller, `Powerbahn serial connection lost: ${controller.lastError}`);
+    notifyConnectionChange(controller, false, {
+      reason: "transport-lost",
+      unexpected: true,
+    });
+  }
+  return true;
 }
 
 async function sendStartupSequence(controller) {
@@ -460,7 +663,23 @@ async function sendStartupSequence(controller) {
     await sendAutoPowerExtraConfiguration(controller, targetPower);
     controller.activePureLogicFixedPower = targetPower;
   }
+  if (!controller.fixedPowerEnabled && !controller.pureLogicFixedPowerEnabled) {
+    await sendStoredResistanceState(controller);
+  }
   controller.startupStep = "polling";
+}
+
+async function sendStoredResistanceState(controller) {
+  if (controller.gradeTargetExplicit) {
+    controller.startupStep = "grade";
+    await sendSerialGradeCommand(controller, controller.targetGrade);
+    controller.activeGrade = controller.targetGrade;
+  }
+  if (controller.gearTargetExplicit) {
+    controller.startupStep = "gear";
+    await sendSerialGearCommand(controller, controller.targetGear);
+    controller.activeGear = controller.targetGear;
+  }
 }
 
 async function pollTorqueRanges(controller) {
@@ -742,6 +961,19 @@ async function sendPowerUpdate(controller, watts) {
   ));
 }
 
+async function sendSerialGradeCommand(controller, grade) {
+  const targetGrade = clampGrade(grade);
+  const rawGrade = Math.round(targetGrade * 10);
+  await writeFrame(controller, createLongCommandFrame(
+    0x28,
+    lowHighBytes(rawGrade, GRADE_UPDATE_STATUS),
+  ));
+}
+
+async function sendSerialGearCommand(controller, gear) {
+  await writeFrame(controller, createLongCommandFrame(0x29, [clampByte(gear)]));
+}
+
 async function sendAutoPowerExtraConfiguration(controller, watts) {
   const targetPower = clampFixedPower(watts);
   await writeFrame(controller, createEncryptedLongCommandFrame(
@@ -889,6 +1121,14 @@ function setSerialStatus(controller, status) {
   controller.onStatus?.(controller);
 }
 
+function notifyConnectionChange(controller, connected, details = {}) {
+  controller.onConnectionChange?.({
+    connected,
+    controller,
+    ...details,
+  });
+}
+
 function notifyDebug(controller) {
   controller.onDebug?.(controller);
 }
@@ -910,6 +1150,7 @@ function resetSerialStats(controller) {
     activeGrade: null,
     activeGear: null,
     activeFixedPower: null,
+    activePureLogicFixedPower: null,
     torqueProfile: Array(TORQUE_PROFILE_SIZE).fill(0),
     torqueRangeMask: 0,
     torqueFrameCount: 0,

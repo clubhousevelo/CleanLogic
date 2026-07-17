@@ -13,6 +13,9 @@ import {
   disconnectSerialPower,
   getGrantedSerialPorts,
   getSerialPortLabel,
+  handleSerialPortDisconnect,
+  isSerialPowerStale,
+  reconnectSerialPower,
   setSerialFixedPower,
   setSerialGear,
   setSerialGrade,
@@ -99,6 +102,7 @@ const state = {
   activePowerSourceId: null,
   lastGraphSampleAt: null,
   lastTelemetry: null,
+  serialRecoveryTimer: null,
   pedalAnalysis: null,
   lastTorquePedalAnalysis: null,
   trendHover: null,
@@ -369,10 +373,17 @@ function wireEvents() {
     renderSensors();
     renderSerialDebug();
   };
-  state.serialPower.onDebug = renderSerialDebug;
+  state.serialPower.onDebug = () => {
+    renderSerialDebug();
+    if (isSerialPowerStale(state.serialPower)) {
+      scheduleSerialPowerRecovery("serial heartbeat stale", 100);
+    }
+  };
   state.serialPower.onFrame = updateSerialDebug;
   state.serialPower.onMeasurement = updateSerialPowerSensorValue;
   state.serialPower.onTorque = updatePedalAnalysis;
+  state.serialPower.onConnectionChange = handleSerialPowerConnectionChange;
+  wireSerialLifecycleEvents();
 }
 
 function initializeTheme() {
@@ -404,6 +415,108 @@ function initializeSerialPortControls() {
   elements.powerbahnFixedPowerInput.value = state.serialPower.targetFixedPower;
   elements.powerbahnPureLogicFixedPowerEnabledInput.checked = state.serialPower.pureLogicFixedPowerEnabled;
   elements.powerbahnPureLogicFixedPowerInput.value = state.serialPower.targetPureLogicFixedPower;
+}
+
+function wireSerialLifecycleEvents() {
+  // Sleep can leave the authorized port object alive while its streams stop; resume events trigger a health check.
+  if (navigator.serial?.addEventListener) {
+    navigator.serial.addEventListener("disconnect", (event) => {
+      if (!isKnownSerialPowerPort(event.port)) return;
+      handleSerialPortDisconnect(state.serialPower, event.port);
+    });
+    navigator.serial.addEventListener("connect", (event) => {
+      if (!isKnownSerialPowerPort(event.port)) return;
+      scheduleSerialPowerRecovery("USB reconnected", 250, { force: true });
+    });
+  }
+
+  const resumeSerialPower = () => {
+    if (document.visibilityState === "visible") {
+      scheduleSerialPowerRecovery("browser resumed", 350);
+    }
+  };
+  document.addEventListener("visibilitychange", resumeSerialPower);
+  window.addEventListener("focus", resumeSerialPower);
+  window.addEventListener("pageshow", resumeSerialPower);
+  window.addEventListener("online", resumeSerialPower);
+}
+
+function isKnownSerialPowerPort(port) {
+  const knownPort = state.serialPower.lastPort ?? state.serialPower.port;
+  if (!knownPort || !port) return false;
+  if (knownPort === port) return true;
+
+  const knownInfo = knownPort.getInfo?.() ?? {};
+  const portInfo = port.getInfo?.() ?? {};
+  return knownInfo.usbVendorId != null
+    && knownInfo.usbProductId != null
+    && knownInfo.usbVendorId === portInfo.usbVendorId
+    && knownInfo.usbProductId === portInfo.usbProductId;
+}
+
+function scheduleSerialPowerRecovery(reason, delayMs = 0, { force = false } = {}) {
+  const serialPower = state.serialPower;
+  if (!serialPower.autoReconnect || !serialPower.lastPort || serialPower.reconnecting) return;
+
+  if (state.serialRecoveryTimer) {
+    if (!force) return;
+    window.clearTimeout(state.serialRecoveryTimer);
+    state.serialRecoveryTimer = null;
+  }
+
+  state.serialRecoveryTimer = window.setTimeout(async () => {
+    state.serialRecoveryTimer = null;
+    if (!serialPower.autoReconnect || serialPower.reconnecting) return;
+    if (!force && serialPower.connected && !isSerialPowerStale(serialPower)) return;
+
+    setSensorConnectStatus(`Reconnecting Powerbahn (${reason})...`, { busyType: SENSOR_TYPES.power });
+    const recovered = await reconnectSerialPower(serialPower, { reason, force });
+    if (recovered) {
+      setSensorConnectStatus(serialPower.status);
+      renderAll(true);
+      return;
+    }
+
+    setSensorConnectStatus(serialPower.status, { error: Boolean(serialPower.lastError) });
+    if (serialPower.autoReconnect) {
+      scheduleSerialPowerRecovery(reason, 2500, { force: false });
+    }
+  }, Math.max(0, delayMs));
+}
+
+function cancelSerialPowerRecovery() {
+  if (!state.serialRecoveryTimer) return;
+  window.clearTimeout(state.serialRecoveryTimer);
+  state.serialRecoveryTimer = null;
+}
+
+function handleSerialPowerConnectionChange({ connected, unexpected = false, reason } = {}) {
+  const sensor = state.activeSensors[SENSOR_TYPES.power];
+  if (sensor?.id !== "powerbahn-usb-serial") return;
+
+  sensor.connected = connected;
+  sensor.live = connected;
+  if (connected) {
+    sensor.lastSeen = new Date();
+    setSensorConnectStatus(state.serialPower.status);
+  } else {
+    sensor.value = null;
+    state.lastTelemetry = null;
+    state.activePowerSourceId = null;
+    state.liveDisplayHistory = [];
+    state.graphHistory = [];
+    state.lastGraphSampleAt = null;
+    state.pedalAnalysis = null;
+    state.lastTorquePedalAnalysis = null;
+    setSensorConnectStatus(
+      unexpected ? "Powerbahn USB connection lost; waiting to reconnect" : state.serialPower.status,
+      { error: unexpected },
+    );
+    if (unexpected || reason === "transport-lost") {
+      scheduleSerialPowerRecovery("serial transport lost", 1000);
+    }
+  }
+  renderAll(true);
 }
 
 function getCurrentSample() {
@@ -1488,6 +1601,7 @@ function getDisplayCadence(powerSensor) {
 async function selectSensorSource({ id, type, transport, name }) {
   if (transport !== SENSOR_TRANSPORTS.bluetooth) disconnectBluetoothSensor(type);
   if (type === SENSOR_TYPES.power && transport !== SENSOR_TRANSPORTS.serial) {
+    cancelSerialPowerRecovery();
     await disconnectSerialPower(state.serialPower);
   }
   const sensorId = id ?? `${type}-${transport.toLowerCase().replaceAll(/[^a-z0-9]+/g, "-")}`;
@@ -1508,6 +1622,7 @@ async function connectPowerbahnSerialSensor() {
   }
 
   disconnectBluetoothSensor(SENSOR_TYPES.power);
+  cancelSerialPowerRecovery();
   const sensor = createSensor({
     id: "powerbahn-usb-serial",
     type: SENSOR_TYPES.power,
@@ -1544,6 +1659,7 @@ async function connectPowerbahnSerialSensor() {
     sensor.lastSeen = new Date();
     setSensorConnectStatus(state.serialPower.status);
   } catch (error) {
+    state.serialPower.autoReconnect = false;
     sensor.connected = false;
     state.serialPower.lastError = error.message;
     setSensorConnectStatus(getSerialConnectError(error), { error: true });
@@ -1553,6 +1669,7 @@ async function connectPowerbahnSerialSensor() {
 }
 
 async function disconnectPowerbahnSerialSensor() {
+  cancelSerialPowerRecovery();
   await disconnectSerialPower(state.serialPower);
   const sensor = state.activeSensors[SENSOR_TYPES.power];
   if (sensor?.id === "powerbahn-usb-serial") {
@@ -1633,6 +1750,7 @@ function updateSerialPowerSensorValue(measurement) {
   sensor.crankAngleRaw = measurement.crankAngleRaw;
   sensor.lastSeen = new Date();
   sensor.rawPacket = measurement.rawHex;
+  reconcilePowerbahnResistanceTargets(measurement);
   state.lastTelemetry = measurement;
   state.tick += 1;
   const sample = {
@@ -1653,6 +1771,21 @@ function updateSerialPowerSensorValue(measurement) {
   updatePowerDisplayHistory();
   updateGraphHistory();
   renderAll(true);
+}
+
+function reconcilePowerbahnResistanceTargets(measurement) {
+  if (!state.serialPower.gradeTargetExplicit && Number.isFinite(measurement.grade)) {
+    const grade = normalizePowerbahnGrade(measurement.grade);
+    state.serialPower.targetGrade = grade;
+    state.serialPower.activeGrade = grade;
+    elements.powerbahnGradeInput.value = grade;
+  }
+  if (!state.serialPower.gearTargetExplicit && Number.isFinite(measurement.gear)) {
+    const gear = normalizePowerbahnGear(measurement.gear);
+    state.serialPower.targetGear = gear;
+    state.serialPower.activeGear = gear;
+    elements.powerbahnGearInput.value = gear;
+  }
 }
 
 function updateGraphHistory() {
@@ -1941,7 +2074,9 @@ function updateSourceButtons() {
   });
   elements.useBluetoothPowerButton.disabled = Boolean(busyType);
   elements.useBluetoothHeartButton.disabled = Boolean(busyType);
-  elements.useSerialPowerButton.disabled = busyType === SENSOR_TYPES.power || state.serialPower.connected;
+  elements.useSerialPowerButton.disabled = busyType === SENSOR_TYPES.power
+    || state.serialPower.connected
+    || state.serialPower.reconnecting;
   elements.disconnectSerialPowerButton.disabled = !state.serialPower.connected;
   elements.useSerialPowerButton.textContent = busyType === SENSOR_TYPES.power
     ? "Connecting..."
